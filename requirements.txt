@@ -1,0 +1,5 @@
+jupyter==1.0.0
+PyVCF==0.6.8
+pandas==1.1.3
+fastparquet==0.4.1 # for pandas to_parquet
+python-snappy==0.5.4 # for pandas to_parquet
