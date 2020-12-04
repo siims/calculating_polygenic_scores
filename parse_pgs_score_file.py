@@ -9,6 +9,8 @@ import pandas as pd
 import vcf
 
 # %%
+from search_your_dna.util import load_vcf_to_df
+
 pgs_df = pd.read_csv("/home/s/src/search_your_dna/data/PGS000318.txt", sep="\t", skiprows=9)
 
 # %%
@@ -86,20 +88,7 @@ def read_raw_zipped_vcf_file(file_name: Union[str, Path]) -> pd.DataFrame:
     return result
 
 
-def load_vcf_to_df(cache_file_name: str = "data/vcf_records.parquet.gz"):
-    if Path(cache_file_name).exists():
-        return pd.read_parquet(cache_file_name)
-
-    dfs = []
-    for vcf_file_path in vcf_file_paths:
-        print(f"Reading in source vcf file {vcf_file_path}")
-        dfs.append(read_raw_zipped_vcf_file(vcf_file_path))
-    raw_vcf_data = pd.concat(dfs, ignore_index=True)
-    raw_vcf_data.to_parquet(cache_file_name)
-    return raw_vcf_data
-
-
 if __name__ == '__main__':
     zipped_vcf_file = "data/vcf_records.parquet.gz"
-    vcf_df = load_vcf_to_df(cache_file_name=zipped_vcf_file)
+    vcf_df = load_vcf_to_df(vcf_file_paths, cache_file_name=zipped_vcf_file)
     # do something
