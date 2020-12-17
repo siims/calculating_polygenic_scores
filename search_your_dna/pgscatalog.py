@@ -1,9 +1,12 @@
 import json
+import pandas as pd
 import shutil
 from pathlib import Path
+from typing import Tuple
 
 import requests
 
+from search_your_dna.snp_store import query_my_genotypes_for_rsids
 from search_your_dna.util import read_raw_zipped_polygenic_score_file
 
 
@@ -48,3 +51,18 @@ def read_or_download_pgs_scoring_file(pgs_id: str):
     scoring_file_url = response_data["ftp_scoring_file"]
     download_file(scoring_file_url, cache_file)
     return read_raw_zipped_polygenic_score_file(cache_file)
+
+
+def calc_polygenic_score(snp_db_file: str, pgs_file: str) -> Tuple[float, pd.DataFrame]:
+    pgs_df = read_raw_zipped_polygenic_score_file(pgs_file)
+    if len(pgs_df.index) > 1000:
+        raise Exception(f"Too many snps for {pgs_file}. Total {len(pgs_df.index)}")
+    genotype = query_my_genotypes_for_rsids(snp_db_file, pgs_df["rsid"].to_list())
+    merged_df = pgs_df.merge(genotype, on="rsid")
+    merged_df["effect_allele_1"] = merged_df["genotype"].map(lambda x: x[0]) == merged_df["effect_allele"]
+    merged_df["effect_allele_2"] = merged_df["genotype"].map(lambda x: x[1]) == merged_df["effect_allele"]
+    merged_df["effect_allele_1"] = merged_df["effect_allele_1"].astype(int)
+    merged_df["effect_allele_2"] = merged_df["effect_allele_2"].astype(int)
+    merged_df["gene_dosage"] = merged_df["effect_allele_1"] + merged_df["effect_allele_2"]
+    merged_df["effect"] = merged_df["gene_dosage"] * merged_df["effect_weight"]
+    return merged_df["effect"].sum(), merged_df

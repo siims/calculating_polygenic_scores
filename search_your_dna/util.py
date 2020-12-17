@@ -8,6 +8,7 @@ from typing import Any, List, Union, Dict, Set
 import numpy as np
 import pandas as pd
 
+
 chrom_list = [
     '1',
     '2',
@@ -36,6 +37,69 @@ chrom_list = [
     'Y'
 ]
 
+KNOWN_CONTIG_CHROM_MAP = {
+    "CM000663.2": "1",
+    "CM000664.2": "2",
+    "CM000665.2": "3",
+    "CM000666.2": "4",
+    "CM000667.2": "5",
+    "CM000668.2": "6",
+    "CM000669.2": "7",
+    "CM000670.2": "8",
+    "CM000671.2": "9",
+    "CM000672.2": "10",
+    "CM000673.2": "11",
+    "CM000674.2": "12",
+    "CM000675.2": "13",
+    "CM000676.2": "14",
+    "CM000677.2": "15",
+    "CM000678.2": "16",
+    "CM000679.2": "17",
+    "CM000680.2": "18",
+    "CM000681.2": "19",
+    "CM000682.2": "20",
+    "CM000683.2": "21",
+    "CM000684.2": "22",
+    "CM000685.2": "X",
+    "CM000686.2": "Y",
+    "J01415.2": "MT",
+    "1": "1",
+    "2": "2",
+    "3": "3",
+    "4": "4",
+    "5": "5",
+    "6": "6",
+    "7": "7",
+    "8": "8",
+    "9": "9",
+    "10": "10",
+    "11": "11",
+    "12": "12",
+    "13": "13",
+    "14": "14",
+    "15": "15",
+    "16": "16",
+    "17": "17",
+    "18": "18",
+    "19": "19",
+    "20": "20",
+    "21": "21",
+    "22": "22",
+    "X": "X",
+    "Y": "Y",
+    "MT": "MT"
+}
+
+
+def is_alignment_supported(alignment_data):
+    supported_reference_genomes = [
+        "grch38.p7"
+    ]
+    for supported_reference_genome in supported_reference_genomes:
+        if supported_reference_genome in str(alignment_data.header.to_dict()).lower():
+            return True
+    return False
+
 
 def get_file_header_line_number(file_name: Union[str, Path], header_pattern: str) -> int:
     with gzip.open(str(file_name), "r") as f:
@@ -57,7 +121,7 @@ def get_vcf_file_header_line_number(file_name: Union[str, Path]) -> int:
 def get_polygenic_score_file_header_line_number(file_name: Union[str, Path]) -> int:
     return get_file_header_line_number(
         file_name=file_name,
-        header_pattern="rsID\s+chr_name\s+chr_position\s+effect_allele"
+        header_pattern="rsID\t"
     )
 
 
@@ -70,10 +134,13 @@ def read_raw_zipped_vcf_file(file_name: Union[str, Path]) -> pd.DataFrame:
 
 def read_raw_zipped_polygenic_score_file(file_name: Union[str, Path]) -> pd.DataFrame:
     header_row_number = get_polygenic_score_file_header_line_number(file_name=file_name)
-    result = pd.read_csv(file_name, sep="\s+", skiprows=header_row_number, dtype=str)
+    result = pd.read_csv(file_name, sep="\t", skiprows=header_row_number, dtype=str)
     result["effect_weight"] = result["effect_weight"].astype(np.float)
-    result["chr_name"] = result["chr_name"].astype(np.int64)
-    result["chr_position"] = result["chr_position"].astype(np.int64)
+    if "chr_name" in result.columns:
+        result["chr_name"] = result["chr_name"].astype(np.int64)
+    if "chr_position" in result.columns:
+        result["chr_position"] = result["chr_position"].astype(np.int64)
+    result.rename(columns={"rsID": "rsid"}, inplace=True)
     return result
 
 
@@ -110,28 +177,42 @@ def _get_reads_in_current_position(pileupcolumn):
     return reads_at_current_position
 
 
+def _get_contig(alignment_data, chrom):
+    for contig in alignment_data.header.references:
+        if KNOWN_CONTIG_CHROM_MAP.get(contig) == chrom:
+            return contig
+    raise AssertionError(f"Chomosome {chrom} not found for known contigs {KNOWN_CONTIG_CHROM_MAP.keys()} "
+                         f"from all alignment data contigs {alignment_data.header.references}")
+
+
 def get_chrom_reads_in_pos(alignment_data, chrom: Union[int, str], positions: Set[int]) -> Dict[int, List[str]]:
+    chrom = str(chrom)
+    contig = _get_contig(alignment_data=alignment_data, chrom=chrom)
     sequence = defaultdict()
-    for pileupcolumn in alignment_data.pileup(str(chrom), 0):
-        # print ("\ncoverage at base %s = %s" % (pileupcolumn.pos, pileupcolumn.n), "pileups", len(pileupcolumn.pileups))
-        pos = pileupcolumn.pos + 1  # NOTE: pileup is 0 based, thus +1 is needed
+    for pileup_column in alignment_data.pileup(contig, 0):
+        # print ("\ncoverage at base %s = %s" % (pileup_column.pos, pileup_column.n), "pileups", len(pileup_column.pileups))
+        pos = pileup_column.pos + 1  # NOTE: pileup is 0 based, thus +1 is needed
         if pos in positions:
             try:
-                sequence[pos] = _get_reads_in_current_position(pileupcolumn=pileupcolumn)
+                sequence[pos] = _get_reads_in_current_position(pileupcolumn=pileup_column)
             except RuntimeWarning:
-                print(f"Chromosome {chrom} position {pos} does not have any READS")
+                ...
+                # print(f"Chromosome {chrom} position {pos} does not have any READS")
     return sequence
 
 
 def get_read_values_for_allele(alignment_data, chrom: Union[int, str], pos: int) -> Dict[int, List[str]]:
+    chrom = str(chrom)
+    contig = _get_contig(alignment_data=alignment_data, chrom=chrom)
     sequence = defaultdict()
-    for pileupcolumn in alignment_data.pileup(str(chrom), pos - 1, pos + 1):
-        # print ("\ncoverage at base %s = %s" % (pileupcolumn.pos, pileupcolumn.n), "pileups", len(pileupcolumn.pileups))
-        if pos == pileupcolumn.pos + 1:  # NOTE: pileup is 0 based, thus +1 is needed
+    for pileup_column in alignment_data.pileup(contig, pos - 1, pos + 1):
+        # print ("\ncoverage at base %s = %s" % (pileup_column.pos, pileup_column.n), "pileups", len(pileup_column.pileups))
+        if pos == pileup_column.pos + 1:  # NOTE: pileup is 0 based, thus +1 is needed
             try:
-                sequence[pos] = _get_reads_in_current_position(pileupcolumn=pileupcolumn)
+                sequence[pos] = _get_reads_in_current_position(pileupcolumn=pileup_column)
             except RuntimeWarning:
-                print(f"Chromosome {chrom} position {pos} does not have any READS")
+                ...
+                # print(f"Chromosome {chrom} position {pos} does not have any READS")
     return sequence
 
 
@@ -186,14 +267,11 @@ def calc_genotypes(alignment_data, loci_df: pd.DataFrame) -> pd.DataFrame:
 def get_my_genotypes_for_pgs(
         alignment_data,
         pgs_df: pd.DataFrame,
-        cache_file_name: str,
-        use_filter: bool = False
+        cache_file_name: str
 ) -> pd.DataFrame:
+    assert is_alignment_supported(alignment_data)
     cache_file = f"data/{cache_file_name}"
     if not Path(cache_file).exists():
-        if use_filter:
-            pgs_df_abs_weight = np.abs(pgs_df["effect_weight"])
-            pgs_df = pgs_df[pgs_df_abs_weight > pgs_df_abs_weight.mean()]
         my_genotypes = calc_genotypes(alignment_data=alignment_data, loci_df=pgs_df)
         my_genotypes.to_csv(cache_file, index=False)
     else:
@@ -228,16 +306,21 @@ def get_genotype_for_chrom_pos(alignment_data, chrom: str, pos: int) -> str:
         raise Exception(f"no reads found for chr{chrom}:{pos}")
 
 
-def get_my_snps_for_chromosome(snp_db_file: str, chrom: str) -> pd.DataFrame:
+def get_my_snps_for_chromosome(alignment_data, snp_db_file: str, chrom: str) -> pd.DataFrame:
+    assert is_alignment_supported(alignment_data=alignment_data) # db has only hg38
     cache_file = Path(f"data/my_chrom_{chrom}_snp.csv")
     if cache_file.exists():
         res_df = pd.read_csv(cache_file, index_col=None)
     else:
         _conn = sqlite3.connect(snp_db_file)
         snp_for_chrom = pd.read_sql_query(f"SELECT * FROM all_snp_pos WHERE chrom = '{chrom}'", con=_conn)
-        my_chrom_snp_reads = get_chrom_reads_in_pos(chrom, set(snp_for_chrom["pos"].to_list()))
+        my_chrom_snp_reads = get_chrom_reads_in_pos(
+            alignment_data=alignment_data, chrom=chrom, positions=set(snp_for_chrom["pos"].to_list())
+        )
         print(f"in database #{snp_for_chrom.shape[0]} SNPs; in my genome found #{len(my_chrom_snp_reads)}")
         res_df = calc_genotype_for_chrom_snp_reads(my_chrom_snp_reads)
         res_df.to_csv(cache_file, index=False)
     res_df["chrom"] = chrom
     return res_df
+
+
