@@ -53,9 +53,9 @@ def read_or_download_pgs_scoring_file(pgs_id: str):
     return read_raw_zipped_polygenic_score_file(cache_file)
 
 
-def calc_polygenic_score(snp_db_file: str, pgs_file: str) -> Tuple[float, pd.DataFrame]:
+def calc_polygenic_score(snp_db_file: str, pgs_file: str, max_pgs_alleles: int) -> Tuple[float, pd.DataFrame]:
     pgs_df = read_raw_zipped_polygenic_score_file(pgs_file)
-    if len(pgs_df.index) > 1000:
+    if len(pgs_df.index) > max_pgs_alleles:
         raise Exception(f"Too many snps for {pgs_file}. Total {len(pgs_df.index)}")
     genotype = query_my_genotypes_for_rsids(snp_db_file, pgs_df["rsid"].to_list())
     merged_df = pgs_df.merge(genotype, on="rsid")
