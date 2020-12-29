@@ -71,6 +71,9 @@ def database_is_already_populated(conn):
 
 
 def persist_all_snps_to_db(conn, file_name: Union[str, Path]) -> None:
+    if database_is_already_populated(conn):
+        print("Database already populated, not populating again.")
+        return
     header_pattern = "#CHROM\s+POS\s+ID\s+REF\s+ALT\s+QUAL\s+FILTER\s+INFO"
     snps = set()
     with open(str(file_name), "r") as f:

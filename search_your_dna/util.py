@@ -136,10 +136,8 @@ def read_raw_zipped_polygenic_score_file(file_name: Union[str, Path]) -> pd.Data
     header_row_number = get_polygenic_score_file_header_line_number(file_name=file_name)
     result = pd.read_csv(file_name, sep="\t", skiprows=header_row_number, dtype=str)
     result["effect_weight"] = result["effect_weight"].astype(np.float)
-    if "chr_name" in result.columns:
-        result["chr_name"] = result["chr_name"].astype(np.int64)
     if "chr_position" in result.columns:
-        result["chr_position"] = result["chr_position"].astype(np.int64)
+        result["chr_position"] = result["chr_position"].astype('float').astype("Int64")  # cast to float before because of known bug https://github.com/pandas-dev/pandas/issues/25472
     result.rename(columns={"rsID": "rsid"}, inplace=True)
     return result
 
@@ -270,7 +268,7 @@ def get_my_genotypes_for_pgs(
         cache_file_name: str
 ) -> pd.DataFrame:
     assert is_alignment_supported(alignment_data)
-    cache_file = f"data/{cache_file_name}"
+    cache_file = f"data/my_genotype_in_pos_hg38/{cache_file_name}"
     if not Path(cache_file).exists():
         my_genotypes = calc_genotypes(alignment_data=alignment_data, loci_df=pgs_df)
         my_genotypes.to_csv(cache_file, index=False)
@@ -308,7 +306,7 @@ def get_genotype_for_chrom_pos(alignment_data, chrom: str, pos: int) -> str:
 
 def get_my_snps_for_chromosome(alignment_data, snp_db_file: str, chrom: str) -> pd.DataFrame:
     assert is_alignment_supported(alignment_data=alignment_data) # db has only hg38
-    cache_file = Path(f"data/my_chrom_{chrom}_snp.csv")
+    cache_file = Path(f"data/my_genotype_in_pos_hg38/my_chrom_{chrom}_snp.csv")
     if cache_file.exists():
         res_df = pd.read_csv(cache_file, index_col=None)
     else:

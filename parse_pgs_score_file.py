@@ -11,7 +11,7 @@ import vcf
 # %%
 from search_your_dna.util import load_vcf_to_df
 
-pgs_df = pd.read_csv("/home/s/src/search_your_dna/data/PGS000318.txt", sep="\t", skiprows=9)
+pgs_df = pd.read_csv("/data/pgs/PGS000318.txt", sep="\t", skiprows=9)
 
 # %%
 
