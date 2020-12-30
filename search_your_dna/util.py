@@ -231,7 +231,7 @@ def genotype_from_reads(reads):
         counts[read] += 1
     sorted_count_keys = sorted(counts, key=counts.__getitem__, reverse=True)
     sorted_count_values = [counts[k] for k in sorted_count_keys]
-    if sorted_count_values[0] / sum(sorted_count_values) > 0.9:
+    if sorted_count_values[0] / sum(sorted_count_values) > 0.9:  # 0.9 is threshold for excluding wrong reads
         return f"{sorted_count_keys[0]}{sorted_count_keys[0]}"
     else:
         return f"{sorted_count_keys[0]}{sorted_count_keys[1]}"
