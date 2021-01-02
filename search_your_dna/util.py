@@ -3,11 +3,10 @@ import re
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, List, Union, Dict, Set
+from typing import Any, List, Union, Dict, Set, Optional
 
 import numpy as np
 import pandas as pd
-
 
 chrom_list = [
     '1',
@@ -63,6 +62,31 @@ KNOWN_CONTIG_CHROM_MAP = {
     "CM000685.2": "X",
     "CM000686.2": "Y",
     "J01415.2": "MT",
+    "chr1": "1",
+    "chr2": "2",
+    "chr3": "3",
+    "chr4": "4",
+    "chr5": "5",
+    "chr6": "6",
+    "chr7": "7",
+    "chr8": "8",
+    "chr9": "9",
+    "chr10": "10",
+    "chr11": "11",
+    "chr12": "12",
+    "chr13": "13",
+    "chr14": "14",
+    "chr15": "15",
+    "chr16": "16",
+    "chr17": "17",
+    "chr18": "18",
+    "chr19": "19",
+    "chr20": "20",
+    "chr21": "21",
+    "chr22": "22",
+    "chrX": "X",
+    "chrY": "Y",
+    "chrM": "MT",
     "1": "1",
     "2": "2",
     "3": "3",
@@ -102,10 +126,18 @@ def is_alignment_supported(alignment_data):
 
 
 def get_file_header_line_number(file_name: Union[str, Path], header_pattern: str) -> int:
-    with gzip.open(str(file_name), "r") as f:
+    is_compressed = Path(file_name).suffix == "gz"
+    if is_compressed:
+        csv_open = gzip.open
+        line_parser = lambda text: line.decode("utf-8")
+    else:
+        csv_open = open
+        line_parser = lambda text: text
+
+    with csv_open(str(file_name), "r") as f:
         line_number = 0
         for line in f:
-            if re.search(header_pattern, line.decode("utf-8")):
+            if re.search(header_pattern, line_parser(line)):
                 return line_number
             line_number += 1
     raise Exception(f"Couldn't find header in file {file_name}. Expected header: {header_pattern}")
@@ -137,7 +169,8 @@ def read_raw_zipped_polygenic_score_file(file_name: Union[str, Path]) -> pd.Data
     result = pd.read_csv(file_name, sep="\t", skiprows=header_row_number, dtype=str)
     result["effect_weight"] = result["effect_weight"].astype(np.float)
     if "chr_position" in result.columns:
-        result["chr_position"] = result["chr_position"].astype('float').astype("Int64")  # cast to float before because of known bug https://github.com/pandas-dev/pandas/issues/25472
+        result["chr_position"] = result["chr_position"].astype('float').astype(
+            "Int64")  # cast to float before because of known bug https://github.com/pandas-dev/pandas/issues/25472
     result.rename(columns={"rsID": "rsid"}, inplace=True)
     return result
 
@@ -158,8 +191,6 @@ def load_vcf_to_df(vcf_files: List[Union[str, Path]], cache_file_name: str = "da
 def load_polygenic_score_file_to_df(file_name: Union[str, Path]) -> pd.DataFrame:
     return read_raw_zipped_polygenic_score_file(file_name=file_name)
 
-
-# section 2
 
 def _get_reads_in_current_position(pileupcolumn):
     if len(pileupcolumn.pileups) == 0:
@@ -183,9 +214,11 @@ def _get_contig(alignment_data, chrom):
                          f"from all alignment data contigs {alignment_data.header.references}")
 
 
-def get_chrom_reads_in_pos(alignment_data, chrom: Union[int, str], positions: Set[int]) -> Dict[int, List[str]]:
+def get_chrom_reads_in_pos(alignment_data, chrom: Union[int, str], positions: Set[int], contig: Optional[str] = None) -> \
+        Dict[int, List[str]]:
     chrom = str(chrom)
-    contig = _get_contig(alignment_data=alignment_data, chrom=chrom)
+    if contig is None:
+        contig = _get_contig(alignment_data=alignment_data, chrom=chrom)
     sequence = defaultdict()
     for pileup_column in alignment_data.pileup(contig, 0):
         # print ("\ncoverage at base %s = %s" % (pileup_column.pos, pileup_column.n), "pileups", len(pileup_column.pileups))
@@ -199,9 +232,17 @@ def get_chrom_reads_in_pos(alignment_data, chrom: Union[int, str], positions: Se
     return sequence
 
 
-def get_read_values_for_allele(alignment_data, chrom: Union[int, str], pos: int) -> Dict[int, List[str]]:
+def get_read_values_for_allele(alignment_data, pos: int, chrom: Optional[Union[int, str]] = None,
+                               contig: Optional[str] = None) -> Dict[
+    int, List[str]]:
+    """
+    Need either chrom or contig. If both provided uses contig by default.
+    :return: dictionary with pos as keys and list of nucleotide values as values
+    """
     chrom = str(chrom)
-    contig = _get_contig(alignment_data=alignment_data, chrom=chrom)
+    if contig is None:
+        contig = _get_contig(alignment_data=alignment_data, chrom=chrom)
+
     sequence = defaultdict()
     for pileup_column in alignment_data.pileup(contig, pos - 1, pos + 1):
         # print ("\ncoverage at base %s = %s" % (pileup_column.pos, pileup_column.n), "pileups", len(pileup_column.pileups))
@@ -244,7 +285,7 @@ def calculate_chromosome_read_values(alignment_data, loci_df: pd.DataFrame) -> D
         pos = entry["chr_position"]
         if chrom not in chromosome_read_values:
             chromosome_read_values[chrom] = {}
-        allele_read_values = get_read_values_for_allele(alignment_data, chrom, int(pos))
+        allele_read_values = get_read_values_for_allele(alignment_data, chrom=chrom, pos=int(pos))
 
         chromosome_read_values[chrom] = {**chromosome_read_values[chrom], **allele_read_values}
     return chromosome_read_values
@@ -305,7 +346,7 @@ def get_genotype_for_chrom_pos(alignment_data, chrom: str, pos: int) -> str:
 
 
 def get_my_snps_for_chromosome(alignment_data, snp_db_file: str, chrom: str) -> pd.DataFrame:
-    assert is_alignment_supported(alignment_data=alignment_data) # db has only hg38
+    assert is_alignment_supported(alignment_data=alignment_data)  # db has only hg38
     cache_file = Path(f"data/my_genotype_in_pos_hg38/my_chrom_{chrom}_snp.csv")
     if cache_file.exists():
         res_df = pd.read_csv(cache_file, index_col=None)
@@ -320,5 +361,3 @@ def get_my_snps_for_chromosome(alignment_data, snp_db_file: str, chrom: str) -> 
         res_df.to_csv(cache_file, index=False)
     res_df["chrom"] = chrom
     return res_df
-
-
