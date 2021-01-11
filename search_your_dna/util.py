@@ -8,7 +8,7 @@ from typing import Any, List, Union, Dict, Set, Optional
 import numpy as np
 import pandas as pd
 
-chrom_list = [
+CHROM_LIST = [
     '1',
     '2',
     '3',
