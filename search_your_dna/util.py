@@ -214,11 +214,14 @@ def _get_contig(alignment_data, chrom):
                          f"from all alignment data contigs {alignment_data.header.references}")
 
 
-def get_chrom_reads_in_pos(alignment_data, chrom: Union[int, str], positions: Set[int], contig: Optional[str] = None) -> \
-        Dict[int, List[str]]:
-    chrom = str(chrom)
+def get_chrom_reads_in_pos(
+        alignment_data,
+        positions: Set[int],
+        contig: Optional[str] = None,
+        chrom: Optional[Union[int, str]] = None
+) -> Dict[int, List[str]]:
     if contig is None:
-        contig = _get_contig(alignment_data=alignment_data, chrom=chrom)
+        contig = _get_contig(alignment_data=alignment_data, chrom=str(chrom))
     sequence = defaultdict()
     for pileup_column in alignment_data.pileup(contig, 0):
         # print ("\ncoverage at base %s = %s" % (pileup_column.pos, pileup_column.n), "pileups", len(pileup_column.pileups))
