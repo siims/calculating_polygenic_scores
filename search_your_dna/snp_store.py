@@ -101,7 +101,7 @@ def insert_genotype_to_db(snp_db_file: str, genotype_df: pd.DataFrame, genotype_
     cur = _conn.cursor()
     for entry in genotype_df.to_dict(orient="records"):
         pos = entry["pos"]
-        genotype = entry[genotype_col_name]
+        genotype = entry["genotype"]
         chrom = entry["chrom"]
         query = f"UPDATE all_snp_pos SET {genotype_col_name} = '{genotype}' WHERE chrom = '{chrom}' and pos = {pos}"
         cur.execute(query)
