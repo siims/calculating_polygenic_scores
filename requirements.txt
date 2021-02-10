@@ -8,3 +8,4 @@ pysam==0.16.0.1
 python-snappy==0.5.4 # for pandas to_parquet
 PyVCF==0.6.8
 requests==2.25.0
+git+https://github.com/bioforensics/rsidx@0.2
