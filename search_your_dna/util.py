@@ -126,7 +126,7 @@ def is_alignment_supported(alignment_data):
 
 
 def get_file_header_line_number(file_name: Union[str, Path], header_pattern: str) -> int:
-    is_compressed = Path(file_name).suffix == "gz"
+    is_compressed = Path(file_name).suffix == ".gz"
     if is_compressed:
         csv_open = gzip.open
         line_parser = lambda text: line.decode("utf-8")
