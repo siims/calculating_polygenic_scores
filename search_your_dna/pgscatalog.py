@@ -1,15 +1,18 @@
 import json
 import time
+import traceback
 from enum import Enum
 
+import numpy as np
 import pandas as pd
 import shutil
 from pathlib import Path
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Dict, Optional, List
 
 import requests
+from tqdm import tqdm
 
-from search_your_dna.snp_store import query_my_genotypes_for_rsids
+from search_your_dna.snp_store import search_for_rsids
 from search_your_dna.util import read_raw_zipped_polygenic_score_file
 
 
@@ -136,17 +139,73 @@ def read_or_download_pgs_scoring_file(pgs_id: str) -> Tuple[Dict, pd.DataFrame]:
     return response_data, read_raw_zipped_polygenic_score_file(cache_file_score_file)
 
 
-def calc_polygenic_score(snp_db_file: str, max_pgs_alleles: Optional[int] = None, pgs_df: Optional[pd.DataFrame] = None, pgs_file: Optional[str] = None) -> Tuple[float, pd.DataFrame]:
+def to_gene_dosage_df(variance_str_list: List[str]) -> pd.DataFrame:
+    gene_dosages = []
+    for v in variance_str_list:
+        chrom, pos, rsid, ref, alt, qual, filter, info, format, _ = tuple(v.split())
+        gene_dosage = int(info[info.find("AC") + 3:info.find("AC") + 4])
+        gene_dosages.append({"rsid": rsid, "gene_dosage": gene_dosage})
+    res = pd.DataFrame(gene_dosages)
+    res["gene_dosage"] = pd.to_numeric(res["gene_dosage"])
+    return res
+
+
+def clean_rsids(rsids: pd.Series, pgs_name: str) -> List[str]:
+    if np.any(rsids.isna()):
+        print(f"PGS {pgs_name} has {np.count_nonzero(rsids.isna())} missing rsids")
+        rsids = rsids.dropna()
+    start_with_rs = rsids.str.startswith("rs")
+    if np.any(~start_with_rs):
+        print(f"PGS {pgs_name} has {np.count_nonzero(~start_with_rs)} non rsid values")
+        rsids = rsids[start_with_rs]
+    values_with_commas_or_underscores = rsids.str.contains(",") | rsids.str.contains("_")
+    if np.any(values_with_commas_or_underscores):
+        print(f"PGS {pgs_name} has {np.count_nonzero(values_with_commas_or_underscores)} rsids containing multiple values")
+        rsids = rsids[~values_with_commas_or_underscores]
+    return rsids.to_list()
+
+
+def calc_polygenic_score(
+        max_pgs_alleles: Optional[int] = None,
+        pgs_df: Optional[pd.DataFrame] = None,
+        pgs_file: Optional[str] = None,
+        file_my_vcf: str = "data/GFX0237425.GRCh38.p7.annotated.hg38_multianno.updated.vcf.gz",
+) -> Tuple[float, pd.DataFrame]:
     if pgs_df is None:
         pgs_df = read_raw_zipped_polygenic_score_file(pgs_file)
     if max_pgs_alleles is not None and len(pgs_df.index) > max_pgs_alleles:
         raise Exception(f"Too many snps for {pgs_file}. Total {len(pgs_df.index)}")
-    genotype = query_my_genotypes_for_rsids(snp_db_file, pgs_df["rsid"].to_list())
-    merged_df = pgs_df.merge(genotype, on="rsid")
-    merged_df["effect_allele_1"] = merged_df["genotype"].map(lambda x: x[0]) == merged_df["effect_allele"]
-    merged_df["effect_allele_2"] = merged_df["genotype"].map(lambda x: x[1]) == merged_df["effect_allele"]
-    merged_df["effect_allele_1"] = merged_df["effect_allele_1"].astype(int)
-    merged_df["effect_allele_2"] = merged_df["effect_allele_2"].astype(int)
-    merged_df["gene_dosage"] = merged_df["effect_allele_1"] + merged_df["effect_allele_2"]
+    pgs_rsids = clean_rsids(pgs_df['rsid'], Path(pgs_file).stem)
+    my_variance = search_for_rsids(pgs_rsids, file_my_vcf=file_my_vcf)
+    gene_dosage_df = to_gene_dosage_df(my_variance)
+    merged_df = pgs_df.merge(gene_dosage_df, on="rsid", how="outer")
+    merged_df["gene_dosage"] = merged_df["gene_dosage"].fillna(0) # assuming that if rsid wasn't present in the vcf I don't have it
     merged_df["effect"] = merged_df["gene_dosage"] * merged_df["effect_weight"]
     return merged_df["effect"].sum(), merged_df
+
+
+def calc_all_polygenic_scores(files: List[str], file_my_vcf: str) -> Tuple[pd.DataFrame, Dict]:
+    def get_pgs_id_from_filename(filename: str) -> str:
+        return Path(filename).stem[:-4]
+
+    errors = {}
+    all_pgs_scores = pd.DataFrame(columns=["pgs_id", "trait", "score", "method_categorized", "method", "file"])
+    for pgs_file in tqdm(sorted(files)):
+        try:
+            pgs_id = get_pgs_id_from_filename(pgs_file)
+            pgs, _ = calc_polygenic_score(max_pgs_alleles=200, pgs_file=pgs_file, file_my_vcf=file_my_vcf)
+
+            metadata_json, _ = read_or_download_pgs_scoring_file(pgs_id)
+
+            all_pgs_scores = all_pgs_scores.append(
+                {
+                    "pgs_id": pgs_id,
+                    "trait": metadata_json["trait_reported"],
+                    "score": pgs,
+                    "method_categorized": PGS_METHOD_MAPPING_TO_METHOD_CATEGORIES.get(metadata_json["method_name"]),
+                    "method": metadata_json["method_name"],
+                    "file": pgs_file
+                }, ignore_index=True)
+        except Exception as e:
+            errors[pgs_file] = [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))]
+    return all_pgs_scores, errors

@@ -6,6 +6,8 @@ import pandas as pd
 from pathlib import Path
 from typing import Union, Iterable, Tuple, List
 
+import rsidx
+
 
 def create_snp_db_schema(snp_db_file):
     conn = sqlite3.connect(snp_db_file)
@@ -122,3 +124,11 @@ def query_my_genotypes_for_rsids(
     end = time.time()
     print("\tTook totally:", end - start)
     return res
+
+
+def search_for_rsids(
+        rsids: List[str],
+        file_my_vcf: str = "data/GFX0237425.GRCh38.p7.annotated.hg38_multianno.updated.vcf.gz"
+) -> List[str]:
+    with sqlite3.connect(Path(file_my_vcf) / ".rsidx") as db:
+        return list(rsidx.search.search(rsids, db, file_my_vcf))
