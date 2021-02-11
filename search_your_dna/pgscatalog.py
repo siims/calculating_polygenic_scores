@@ -12,8 +12,7 @@ from typing import Tuple, Dict, Optional, List
 import requests
 from tqdm import tqdm
 
-from search_your_dna.snp_store import search_for_rsids
-from search_your_dna.util import read_raw_zipped_polygenic_score_file
+from search_your_dna.util import read_raw_zipped_polygenic_score_file, search_for_rsids
 
 
 class MethodCategories(Enum):

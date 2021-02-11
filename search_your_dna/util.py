@@ -7,6 +7,7 @@ from typing import Any, List, Union, Dict, Set, Optional
 
 import numpy as np
 import pandas as pd
+import rsidx
 
 CHROM_LIST = [
     '1',
@@ -290,7 +291,7 @@ def calc_genotype_for_chrom_snp_reads(chrom_snp_reads: Dict[int, List[str]], chr
     return chrom_snp_genotypes_df
 
 
-def genotype_from_reads(reads, chrom: str, sex: str):
+def genotype_from_reads(reads, chrom: str, sex: str = "male"):
     counts = {"A": 0, "C": 0, "G": 0, "T": 0, "D": 0}
     for read in reads:
         counts[read] += 1
@@ -324,7 +325,7 @@ def calc_genotypes(alignment_data, loci_df: pd.DataFrame) -> pd.DataFrame:
     seq = pd.DataFrame(columns=["chr", "pos", "genotype"])
     for chrom, pos_reads in chromosome_read_values.items():
         for pos, reads in pos_reads.items():
-            allele = genotype_from_reads(reads)
+            allele = genotype_from_reads(reads, chrom=chrom)
             seq = seq.append({"chr": chrom, "pos": pos, "genotype": allele}, ignore_index=True)
     seq["genotype"] = seq["genotype"].astype(str)
     return seq
@@ -367,29 +368,14 @@ def filter_out_effect_alleles(merged_pgs_with_my_genotype):
 def get_genotype_for_chrom_pos(alignment_data, chrom: str, pos: int) -> str:
     reads = get_read_values_for_allele(alignment_data=alignment_data, chrom=chrom, pos=pos)
     if len(reads) != 0:
-        return genotype_from_reads(reads[pos])
+        return genotype_from_reads(reads[pos], chrom=chrom)
     else:
         raise Exception(f"no reads found for chr{chrom}:{pos}")
 
 
-def get_my_snps_for_chromosome(alignment_data, snp_db_file: str, chrom: str,
-                               cache_root_path: Union[str, Path] = "data/my_genotype_in_pos_hg38") -> pd.DataFrame:
-    """
-    :return: data frame with columns "chrom", "pos", "genotype"
-    """
-    assert is_alignment_supported(alignment_data=alignment_data)  # db has only hg38
-    cache_file = Path(cache_root_path) / f"my_chrom_{chrom}_snp.csv"
-    if cache_file.exists():
-        res_df = pd.read_csv(cache_file, index_col=None)
-    else:
-        _conn = sqlite3.connect(snp_db_file)
-        snp_pos_on_chrom = set(
-            pd.read_sql_query(f"SELECT pos FROM all_snp_pos WHERE chrom = '{chrom}'", con=_conn)["pos"].to_list())
-        my_chrom_snp_reads = get_chrom_reads_in_pos(
-            alignment_data=alignment_data, chrom=chrom, positions=snp_pos_on_chrom
-        )
-        print(f"in database #{len(snp_pos_on_chrom)} SNPs; in my genome found #{len(my_chrom_snp_reads)}")
-        res_df = calc_genotype_for_chrom_snp_reads(my_chrom_snp_reads)
-        res_df.to_csv(cache_file, index=False)
-    res_df["chrom"] = chrom
-    return res_df
+def search_for_rsids(
+        rsids: List[str],
+        file_my_vcf: str
+) -> List[str]:
+    with sqlite3.connect(Path(file_my_vcf) / ".rsidx") as db:
+        return list(rsidx.search.search(rsids, db, file_my_vcf))
