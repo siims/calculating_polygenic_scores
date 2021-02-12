@@ -151,13 +151,6 @@ def get_vcf_file_header_line_number(file_name: Union[str, Path]) -> int:
     )
 
 
-def get_polygenic_score_file_header_line_number(file_name: Union[str, Path]) -> int:
-    return get_file_header_line_number(
-        file_name=file_name,
-        header_pattern="rsID\t"
-    )
-
-
 def read_raw_zipped_vcf_file(file_name: Union[str, Path]) -> pd.DataFrame:
     header_row_number = get_vcf_file_header_line_number(file_name=file_name)
     result = pd.read_csv(file_name, sep="\s+", skiprows=header_row_number, dtype=str)
@@ -166,14 +159,54 @@ def read_raw_zipped_vcf_file(file_name: Union[str, Path]) -> pd.DataFrame:
 
 
 def read_raw_zipped_polygenic_score_file(file_name: Union[str, Path]) -> pd.DataFrame:
-    header_row_number = get_polygenic_score_file_header_line_number(file_name=file_name)
+    header_row_number = get_file_header_line_number(
+        file_name=file_name,
+        header_pattern="rsID\t"
+    )
     result = pd.read_csv(file_name, sep="\t", skiprows=header_row_number, dtype=str)
     result["effect_weight"] = result["effect_weight"].astype(np.float)
-    if "chr_position" in result.columns:
-        result["chr_position"] = result["chr_position"].astype('float').astype(
-            "Int64")  # cast to float before because of known bug https://github.com/pandas-dev/pandas/issues/25472
     result.rename(columns={"rsID": "rsid"}, inplace=True)
+    return result[["rsid", "effect_weight"]]
+
+
+def read_raw_zipped_polygenic_score_file_with_chrom_pos(file_name: Union[str, Path]) -> pd.DataFrame:
+    header_row_number = get_file_header_line_number(
+        file_name=file_name,
+        header_pattern="chr_name\t"
+    )
+    result = pd.read_csv(file_name, sep="\t", skiprows=header_row_number, dtype=str)
+    result["effect_weight"] = result["effect_weight"].astype(np.float)
+    # cast to float before because of known bug https://github.com/pandas-dev/pandas/issues/25472
+    result["chr_position"] = result["chr_position"].astype('float').astype("Int64")
+    result.rename(columns={"chr_name": "chrom", "chr_position": "pos"}, inplace=True)
+
+    hg_build = _get_pgs_file_human_genome_build(file_name)
+
+    result = result[["chrom", "pos", "effect_weight", "reference_allele", "effect_allele"]]
+    result.attrs["metadata"] = {
+        "hg_build": hg_build
+    }
     return result
+
+
+def _get_pgs_file_human_genome_build(file_name):
+    is_compressed = Path(file_name).suffix == ".gz"
+    if is_compressed:
+        csv_open = gzip.open
+        line_parser = lambda text: line.decode("utf-8")
+    else:
+        csv_open = open
+        line_parser = lambda text: text
+    is_hg19, is_hg38 = False, False
+    with csv_open(file_name) as pgs_file:
+        for line in pgs_file:
+            line = line_parser(line)
+            if "grch37" in line.lower():
+                is_hg19 = True
+            if "grch38" in line.lower():
+                is_hg38 = True
+    assert not is_hg19 or not is_hg38, f"need to know what human genome build is used, but not known for pgs {file_name}"
+    return "hg19" if is_hg19 else "hg38"
 
 
 def load_vcf_to_df(vcf_files: List[Union[str, Path]], cache_file_name: str = "data/vcf_records.parquet.gz"):
@@ -280,7 +313,8 @@ def get_read_values_for_allele(alignment_data, pos: int, chrom: Optional[Union[i
     return sequence
 
 
-def calc_genotype_for_chrom_snp_reads(chrom_snp_reads: Dict[int, List[str]], chrom: str, sex: str = "male") -> pd.DataFrame:
+def calc_genotype_for_chrom_snp_reads(chrom_snp_reads: Dict[int, List[str]], chrom: str,
+                                      sex: str = "male") -> pd.DataFrame:
     chrom_snp_genotypes = defaultdict()
     for pos, reads in chrom_snp_reads.items():
         chrom_snp_genotypes[pos] = genotype_from_reads(reads, chrom=chrom, sex=sex)
@@ -377,5 +411,10 @@ def search_for_rsids(
         rsids: List[str],
         file_my_vcf: str
 ) -> List[str]:
-    with sqlite3.connect(Path(file_my_vcf) / ".rsidx") as db:
-        return list(rsidx.search.search(rsids, db, file_my_vcf))
+    if Path(file_my_vcf).suffix == ".gz":
+        file_my_vcf = file_my_vcf[:-3]
+
+    file_my_vcf_tabix_indexed = file_my_vcf + ".gz"
+    file_my_vcf_rsidx_indexed = file_my_vcf + ".rsidx"
+    with sqlite3.connect(file_my_vcf_rsidx_indexed) as db:
+        return list(rsidx.search.search(rsids, db, file_my_vcf_tabix_indexed))

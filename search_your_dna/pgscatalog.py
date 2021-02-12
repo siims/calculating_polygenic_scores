@@ -9,10 +9,12 @@ import shutil
 from pathlib import Path
 from typing import Tuple, Dict, Optional, List
 
+import pysam
 import requests
 from tqdm import tqdm
 
-from search_your_dna.util import read_raw_zipped_polygenic_score_file, search_for_rsids
+from search_your_dna.util import read_raw_zipped_polygenic_score_file, search_for_rsids, \
+    read_raw_zipped_polygenic_score_file_with_chrom_pos
 
 
 class MethodCategories(Enum):
@@ -159,31 +161,99 @@ def clean_rsids(rsids: pd.Series, pgs_name: str) -> List[str]:
         rsids = rsids[start_with_rs]
     values_with_commas_or_underscores = rsids.str.contains(",") | rsids.str.contains("_")
     if np.any(values_with_commas_or_underscores):
-        print(f"PGS {pgs_name} has {np.count_nonzero(values_with_commas_or_underscores)} rsids containing multiple values")
+        print(
+            f"PGS {pgs_name} has {np.count_nonzero(values_with_commas_or_underscores)} rsids containing multiple values")
         rsids = rsids[~values_with_commas_or_underscores]
     return rsids.to_list()
 
 
-def calc_polygenic_score(
-        max_pgs_alleles: Optional[int] = None,
-        pgs_df: Optional[pd.DataFrame] = None,
-        pgs_file: Optional[str] = None,
-        file_my_vcf: str = "data/GFX0237425.GRCh38.p7.annotated.hg38_multianno.updated.vcf.gz",
-) -> Tuple[float, pd.DataFrame]:
-    if pgs_df is None:
-        pgs_df = read_raw_zipped_polygenic_score_file(pgs_file)
-    if max_pgs_alleles is not None and len(pgs_df.index) > max_pgs_alleles:
-        raise Exception(f"Too many snps for {pgs_file}. Total {len(pgs_df.index)}")
-    pgs_rsids = clean_rsids(pgs_df['rsid'], Path(pgs_file).stem)
-    my_variance = search_for_rsids(pgs_rsids, file_my_vcf=file_my_vcf)
+def fetch_hg19_rsids_based_on_chrom_pos(
+        df: pd.DataFrame,
+        hg19_rsid_chrom_pos_mapping_file: str
+) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    :param df: data frame with expected columns: "chrom", "pos", "effect_allele", "reference_allele"
+    :return: data frame with columns "rsid", "chrom", "pos" that were present in the db
+    """
+    assert {"chrom", "pos", "effect_allele", "reference_allele"} - set(df.columns) != {}, "Missing columns"
+    hg19_vcf = pysam.Tabixfile(hg19_rsid_chrom_pos_mapping_file)
+
+    pgs_locations = pd.DataFrame(columns=["rsid", "chrom", "pos"])
+    warnings = []
+    for _, pgs_row in df.iterrows():
+        counter = 0
+        for rsid_mapping_file_row in hg19_vcf.fetch(pgs_row["chrom"], pgs_row["pos"] - 1, pgs_row["pos"]):
+            values = rsid_mapping_file_row.split("\t")
+            chrom, pos, _, reference_allele, effect_allele, rsid = tuple(values)
+            pos = int(pos)
+            if pgs_row["pos"] == pos and pgs_row["effect_allele"] == effect_allele and pgs_row[
+                "reference_allele"] == reference_allele:
+                pgs_locations = pgs_locations.append({"rsid": rsid, "chrom": chrom, "pos": pos}, ignore_index=True)
+                if counter != 0:
+                    warnings.append(f"multipe rsids for {pgs_row['chrom']}, {pgs_row['pos']}. {rsid_mapping_file_row}")
+                counter += 1
+    return pgs_locations, warnings
+
+
+def do_polygenic_score_calculation(gene_dosage: pd.Series, effect_weight: pd.Series) -> Tuple[float, pd.Series]:
+    pgs_effect = gene_dosage * effect_weight
+    return pgs_effect.sum(), pgs_effect
+
+
+def read_polygenic_score_file(pgs_file):
+    try:
+        return read_raw_zipped_polygenic_score_file(pgs_file)
+    except Exception as e:
+        first_error = [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))]
+    try:
+        return read_raw_zipped_polygenic_score_file_with_chrom_pos(pgs_file)
+    except Exception as e:
+        second_error = [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))]
+
+    if first_error is not None and second_error is not None:
+        raise Exception(f"ERROR: read_polygenic_score_file failed. Exceptions: {second_error + first_error}")
+
+
+def calc_polygenic_score(my_vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_mapping_file: str, max_pgs_alleles=200):
+    pgs_df = read_polygenic_score_file(pgs_file)
+    assert pgs_df.shape[0] < max_pgs_alleles, f"Too many snps for {pgs_file}. Total {pgs_df.shape[0]}"
+
+    is_pgs_file_with_rsids = "rsid" in pgs_df.columns
+    if is_pgs_file_with_rsids:
+        print("calc pgs based on rsid")
+        pgs_locations = pd.DataFrame(pgs_df["rsid"], columns=["rsid"])
+        pgs_rsids = clean_rsids(pgs_locations["rsid"], Path(pgs_file).stem)
+        my_variance = search_for_rsids(pgs_rsids, file_my_vcf=my_vcf_file)
+    else:
+        print("calc pgs based on chr-pos")
+        assert pgs_df.attrs["metadata"]["hg_build"] == "hg19", (
+            f"Can handle only pgs files with hg19 builds. Cannot handle {pgs_df.attrs['metadata']['hg_build']}"
+        )
+
+        pgs_locations, _ = fetch_hg19_rsids_based_on_chrom_pos(pgs_df, hg19_rsid_chrom_pos_mapping_file)
+        my_variance = search_for_rsids(pgs_locations["rsid"], file_my_vcf=my_vcf_file)
+
     gene_dosage_df = to_gene_dosage_df(my_variance)
-    merged_df = pgs_df.merge(gene_dosage_df, on="rsid", how="outer")
-    merged_df["gene_dosage"] = merged_df["gene_dosage"].fillna(0) # assuming that if rsid wasn't present in the vcf I don't have it
-    merged_df["effect"] = merged_df["gene_dosage"] * merged_df["effect_weight"]
-    return merged_df["effect"].sum(), merged_df
+
+    if is_pgs_file_with_rsids:
+        merged_df = pgs_df.merge(gene_dosage_df, on="rsid", how="inner")
+    else:
+        gene_dosage_df = gene_dosage_df.merge(pgs_locations, how="outer", on="rsid")
+        merged_df = pgs_df.merge(gene_dosage_df, on=["chrom", "pos"], how="inner")
+        merged_df["pos"] = merged_df["pos"].astype("Int64")
+
+    # assuming that if gene_dosage is nan then it wasn't found in my genome
+    merged_df["gene_dosage"] = merged_df["gene_dosage"].fillna(0)
+    pgs_score, merged_df["effect"] = do_polygenic_score_calculation(merged_df["gene_dosage"],
+                                                                    merged_df["effect_weight"])
+    return pgs_score, merged_df
 
 
-def calc_all_polygenic_scores(files: List[str], file_my_vcf: str) -> Tuple[pd.DataFrame, Dict]:
+def calc_all_polygenic_scores(
+        files: List[str],
+        file_my_vcf: str,
+        hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz"
+) -> Tuple[pd.DataFrame, Dict]:
     def get_pgs_id_from_filename(filename: str) -> str:
         return Path(filename).stem[:-4]
 
@@ -192,7 +262,11 @@ def calc_all_polygenic_scores(files: List[str], file_my_vcf: str) -> Tuple[pd.Da
     for pgs_file in tqdm(sorted(files)):
         try:
             pgs_id = get_pgs_id_from_filename(pgs_file)
-            pgs, _ = calc_polygenic_score(max_pgs_alleles=200, pgs_file=pgs_file, file_my_vcf=file_my_vcf)
+            # TODO: add caching
+            pgs, _ = calc_polygenic_score(my_vcf_file=file_my_vcf,
+                                          pgs_file=pgs_file,
+                                          hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
+                                          max_pgs_alleles=200)
 
             metadata_json, _ = read_or_download_pgs_scoring_file(pgs_id)
 
