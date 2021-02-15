@@ -226,7 +226,7 @@ def calc_polygenic_score(my_vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_ma
         pgs_rsids = clean_rsids(pgs_locations["rsid"], Path(pgs_file).stem)
         my_variance = search_for_rsids(pgs_rsids, my_vcf_file=my_vcf_file)
     else:
-        print(f"calc pgs based on chr-pos {get_pgs_id_from_filename(my_vcf_file)}")
+        print(f"calc pgs based on chr-pos {get_pgs_id_from_filename(pgs_file)}")
         assert pgs_df.attrs["metadata"]["hg_build"] == "hg19", (
             f"Can handle only pgs files with hg19 builds. Cannot handle {pgs_df.attrs['metadata']['hg_build']}"
         )
