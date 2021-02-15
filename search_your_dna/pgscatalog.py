@@ -286,11 +286,13 @@ def calc_all_polygenic_scores_parallel(
         files: List[str],
         my_vcf_file: str,
         hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz",
+        max_pgs_alleles: int = 20000,
         num_parallel_processes: int = 6
 ):
     with Pool(num_parallel_processes) as p:
         res = p.map(_do_calc_polygenic_score_parallel,
-                    [(get_pgs_id_from_filename(file), my_vcf_file, hg19_rsid_chrom_pos_mapping_file) for file in files])
+                    [(get_pgs_id_from_filename(file), my_vcf_file, hg19_rsid_chrom_pos_mapping_file, max_pgs_alleles)
+                     for file in files])
         pgs_dfs = [v[0] for v in res if v[0] is not None]
         if len(pgs_dfs) == 0:
             pgs_df = pd.DataFrame()
@@ -309,20 +311,20 @@ def get_pgs_filename_from_id(pgs_id: str) -> str:
 
 
 def _do_calc_polygenic_score_parallel(
-        input_args: Tuple[str, str, str]
+        input_args: Tuple[str, str, str, int]
 ) -> Tuple[Optional[pd.DataFrame], Optional[Tuple[str, List[str]]]]:
-    pgs_id, my_vcf_file, hg19_rsid_chrom_pos_mapping_file = input_args
+    pgs_id, my_vcf_file, hg19_rsid_chrom_pos_mapping_file, max_pgs_alleles = input_args
     cache_dir = Path("data/pgs_results")
     cache_dir.mkdir(exist_ok=True, parents=True)
     cache_file = cache_dir / f"{pgs_id}.tsv"
     if Path(cache_file).exists():
-        return pd.read_csv(cache_file), None
+        return pd.read_csv(cache_file, sep="\t"), None
     try:
         pgs, _ = calc_polygenic_score(
             my_vcf_file=my_vcf_file,
             pgs_file=get_pgs_filename_from_id(pgs_id),
             hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
-            max_pgs_alleles=200
+            max_pgs_alleles=max_pgs_alleles
         )
 
         metadata_json, _ = read_or_download_pgs_scoring_file(pgs_id)
