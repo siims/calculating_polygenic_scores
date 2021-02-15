@@ -2,6 +2,7 @@ import json
 import time
 import traceback
 from enum import Enum
+from multiprocessing import Pool
 
 import numpy as np
 import pandas as pd
@@ -116,7 +117,7 @@ def download_file(url: str, local_filename: str) -> None:
 
 
 def read_or_download_pgs_scoring_file(pgs_id: str) -> Tuple[Dict, pd.DataFrame]:
-    cache_file_score_file = f"data/pgs/{pgs_id}.txt.gz"
+    cache_file_score_file = get_pgs_filename_from_id(pgs_id)
     cache_file_response = f"data/pgs/{pgs_id}.json"
 
     if Path(cache_file_response).exists():
@@ -220,18 +221,18 @@ def calc_polygenic_score(my_vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_ma
 
     is_pgs_file_with_rsids = "rsid" in pgs_df.columns
     if is_pgs_file_with_rsids:
-        print("calc pgs based on rsid")
+        print(f"calc pgs based on rsid for {get_pgs_id_from_filename(pgs_file)}")
         pgs_locations = pd.DataFrame(pgs_df["rsid"], columns=["rsid"])
         pgs_rsids = clean_rsids(pgs_locations["rsid"], Path(pgs_file).stem)
-        my_variance = search_for_rsids(pgs_rsids, file_my_vcf=my_vcf_file)
+        my_variance = search_for_rsids(pgs_rsids, my_vcf_file=my_vcf_file)
     else:
-        print("calc pgs based on chr-pos")
+        print(f"calc pgs based on chr-pos {get_pgs_id_from_filename(my_vcf_file)}")
         assert pgs_df.attrs["metadata"]["hg_build"] == "hg19", (
             f"Can handle only pgs files with hg19 builds. Cannot handle {pgs_df.attrs['metadata']['hg_build']}"
         )
 
         pgs_locations, _ = fetch_hg19_rsids_based_on_chrom_pos(pgs_df, hg19_rsid_chrom_pos_mapping_file)
-        my_variance = search_for_rsids(pgs_locations["rsid"], file_my_vcf=my_vcf_file)
+        my_variance = search_for_rsids(pgs_locations["rsid"], my_vcf_file=my_vcf_file)
 
     gene_dosage_df = to_gene_dosage_df(my_variance)
 
@@ -251,19 +252,16 @@ def calc_polygenic_score(my_vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_ma
 
 def calc_all_polygenic_scores(
         files: List[str],
-        file_my_vcf: str,
+        my_vcf_file: str,
         hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz"
 ) -> Tuple[pd.DataFrame, Dict]:
-    def get_pgs_id_from_filename(filename: str) -> str:
-        return Path(filename).stem[:-4]
-
     errors = {}
     all_pgs_scores = pd.DataFrame(columns=["pgs_id", "trait", "score", "method_categorized", "method", "file"])
     for pgs_file in tqdm(sorted(files)):
         try:
             pgs_id = get_pgs_id_from_filename(pgs_file)
             # TODO: add caching
-            pgs, _ = calc_polygenic_score(my_vcf_file=file_my_vcf,
+            pgs, _ = calc_polygenic_score(my_vcf_file=my_vcf_file,
                                           pgs_file=pgs_file,
                                           hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
                                           max_pgs_alleles=200)
@@ -282,3 +280,65 @@ def calc_all_polygenic_scores(
         except Exception as e:
             errors[pgs_file] = [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))]
     return all_pgs_scores, errors
+
+
+def calc_all_polygenic_scores_parallel(
+        files: List[str],
+        my_vcf_file: str,
+        hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz",
+        num_parallel_processes: int = 6
+):
+    with Pool(num_parallel_processes) as p:
+        res = p.map(_do_calc_polygenic_score_parallel,
+                    [(get_pgs_id_from_filename(file), my_vcf_file, hg19_rsid_chrom_pos_mapping_file) for file in files])
+        pgs_dfs = [v[0] for v in res if v[0] is not None]
+        if len(pgs_dfs) == 0:
+            pgs_df = pd.DataFrame()
+        else:
+            pgs_df = pd.concat(pgs_dfs, ignore_index=True)
+        errors = {v[1][0]: v[1][1] for v in res if v[1] is not None}
+        return pgs_df, errors
+
+
+def get_pgs_id_from_filename(filename: str) -> str:
+    return Path(filename).stem[:-4]
+
+
+def get_pgs_filename_from_id(pgs_id: str) -> str:
+    return f"data/pgs/{pgs_id}.txt.gz"
+
+
+def _do_calc_polygenic_score_parallel(
+        input_args: Tuple[str, str, str]
+) -> Tuple[Optional[pd.DataFrame], Optional[Tuple[str, List[str]]]]:
+    pgs_id, my_vcf_file, hg19_rsid_chrom_pos_mapping_file = input_args
+    cache_dir = Path("data/pgs_results")
+    cache_dir.mkdir(exist_ok=True, parents=True)
+    cache_file = cache_dir / f"{pgs_id}.tsv"
+    if Path(cache_file).exists():
+        return pd.read_csv(cache_file), None
+    try:
+        pgs, _ = calc_polygenic_score(
+            my_vcf_file=my_vcf_file,
+            pgs_file=get_pgs_filename_from_id(pgs_id),
+            hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
+            max_pgs_alleles=200
+        )
+
+        metadata_json, _ = read_or_download_pgs_scoring_file(pgs_id)
+
+        result_df = pd.DataFrame(
+            [
+                [
+                    pgs_id,
+                    metadata_json["trait_reported"],
+                    pgs,
+                    PGS_METHOD_MAPPING_TO_METHOD_CATEGORIES.get(metadata_json["method_name"]),
+                    metadata_json["method_name"],
+                ]
+            ],
+            columns=["pgs_id", "trait", "score", "method_categorized", "method"])
+        result_df.to_csv(cache_file, sep="\t", index=False)
+        return result_df, None
+    except Exception as e:
+        return None, (pgs_id, [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))])

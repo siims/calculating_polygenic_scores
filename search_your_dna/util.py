@@ -409,12 +409,12 @@ def get_genotype_for_chrom_pos(alignment_data, chrom: str, pos: int) -> str:
 
 def search_for_rsids(
         rsids: List[str],
-        file_my_vcf: str
+        my_vcf_file: str
 ) -> List[str]:
-    if Path(file_my_vcf).suffix == ".gz":
-        file_my_vcf = file_my_vcf[:-3]
+    if Path(my_vcf_file).suffix == ".gz":
+        my_vcf_file = my_vcf_file[:-3]
 
-    file_my_vcf_tabix_indexed = file_my_vcf + ".gz"
-    file_my_vcf_rsidx_indexed = file_my_vcf + ".rsidx"
+    file_my_vcf_tabix_indexed = my_vcf_file + ".gz"
+    file_my_vcf_rsidx_indexed = my_vcf_file + ".rsidx"
     with sqlite3.connect(file_my_vcf_rsidx_indexed) as db:
         return list(rsidx.search.search(rsids, db, file_my_vcf_tabix_indexed))
