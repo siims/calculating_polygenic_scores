@@ -116,7 +116,7 @@ def download_file(url: str, local_filename: str) -> None:
             shutil.copyfileobj(r.raw, f)
 
 
-def read_or_download_pgs_scoring_file(pgs_id: str) -> Tuple[Dict, pd.DataFrame]:
+def read_or_download_pgs_scoring_file(pgs_id: str) -> Tuple[str, Dict]:
     cache_file_score_file = get_pgs_filename_from_id(pgs_id)
     cache_file_response = f"data/pgs/{pgs_id}.json"
 
@@ -138,10 +138,12 @@ def read_or_download_pgs_scoring_file(pgs_id: str) -> Tuple[Dict, pd.DataFrame]:
         )
         scoring_file_url = response_data["ftp_scoring_file"]
         download_file(scoring_file_url, cache_file_score_file)
-    return response_data, read_raw_zipped_polygenic_score_file(cache_file_score_file)
+    return cache_file_score_file, response_data
 
 
 def to_gene_dosage_df(variance_str_list: List[str]) -> pd.DataFrame:
+    if len(variance_str_list) == 0:
+        return pd.DataFrame(columns=["rsid", "gene_dosage"])
     gene_dosages = []
     for v in variance_str_list:
         chrom, pos, rsid, ref, alt, qual, filter, info, format, _ = tuple(v.split())
@@ -253,32 +255,22 @@ def calc_polygenic_score(my_vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_ma
 def calc_all_polygenic_scores(
         files: List[str],
         my_vcf_file: str,
-        hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz"
+        hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz",
+        max_pgs_alleles: int = 20_000
 ) -> Tuple[pd.DataFrame, Dict]:
     errors = {}
     all_pgs_scores = pd.DataFrame(columns=["pgs_id", "trait", "score", "method_categorized", "method", "file"])
     for pgs_file in tqdm(sorted(files)):
-        try:
-            pgs_id = get_pgs_id_from_filename(pgs_file)
-            # TODO: add caching
-            pgs, _ = calc_polygenic_score(my_vcf_file=my_vcf_file,
-                                          pgs_file=pgs_file,
-                                          hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
-                                          max_pgs_alleles=200)
-
-            metadata_json, _ = read_or_download_pgs_scoring_file(pgs_id)
-
-            all_pgs_scores = all_pgs_scores.append(
-                {
-                    "pgs_id": pgs_id,
-                    "trait": metadata_json["trait_reported"],
-                    "score": pgs,
-                    "method_categorized": PGS_METHOD_MAPPING_TO_METHOD_CATEGORIES.get(metadata_json["method_name"]),
-                    "method": metadata_json["method_name"],
-                    "file": pgs_file
-                }, ignore_index=True)
-        except Exception as e:
-            errors[pgs_file] = [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))]
+        single_pgs_score_df, error = _do_calc_polygenic_score(
+            pgs_id=get_pgs_id_from_filename(pgs_file),
+            my_vcf_file=my_vcf_file,
+            hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
+            max_pgs_alleles=max_pgs_alleles
+        )
+        if single_pgs_score_df is not None:
+            all_pgs_scores = all_pgs_scores.append(single_pgs_score_df, ignore_index=True)
+        else:
+            errors[pgs_file] = error
     return all_pgs_scores, errors
 
 
@@ -286,11 +278,11 @@ def calc_all_polygenic_scores_parallel(
         files: List[str],
         my_vcf_file: str,
         hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz",
-        max_pgs_alleles: int = 20000,
+        max_pgs_alleles: int = 20_000,
         num_parallel_processes: int = 6
 ):
     with Pool(num_parallel_processes) as p:
-        res = p.map(_do_calc_polygenic_score_parallel,
+        res = p.map(_do_calc_polygenic_score_single_input_arg,
                     [(get_pgs_id_from_filename(file), my_vcf_file, hg19_rsid_chrom_pos_mapping_file, max_pgs_alleles)
                      for file in files])
         pgs_dfs = [v[0] for v in res if v[0] is not None]
@@ -310,37 +302,65 @@ def get_pgs_filename_from_id(pgs_id: str) -> str:
     return f"data/pgs/{pgs_id}.txt.gz"
 
 
-def _do_calc_polygenic_score_parallel(
-        input_args: Tuple[str, str, str, int]
+def _do_calc_polygenic_score(
+        pgs_id: str,
+        my_vcf_file: str,
+        hg19_rsid_chrom_pos_mapping_file: str,
+        max_pgs_alleles: int
 ) -> Tuple[Optional[pd.DataFrame], Optional[Tuple[str, List[str]]]]:
-    pgs_id, my_vcf_file, hg19_rsid_chrom_pos_mapping_file, max_pgs_alleles = input_args
     cache_dir = Path("data/pgs_results")
     cache_dir.mkdir(exist_ok=True, parents=True)
     cache_file = cache_dir / f"{pgs_id}.tsv"
     if Path(cache_file).exists():
-        return pd.read_csv(cache_file, sep="\t"), None
+        print(f"Using cache for {pgs_id}")
+        results = pd.read_csv(cache_file, sep="\t")
+        if results["error"][0] is not "":
+            return None, (pgs_id, results["error"][0])
+        return results, None
+
+    downloaded_pgs_score_file, _ = read_or_download_pgs_scoring_file(pgs_id)
+    df_to_store = pd.DataFrame(
+        [
+            [
+                pgs_id,
+                np.nan,
+                ""
+            ]
+        ],
+        columns=["pgs_id", "score", "error"]
+    )
     try:
         pgs, _ = calc_polygenic_score(
             my_vcf_file=my_vcf_file,
-            pgs_file=get_pgs_filename_from_id(pgs_id),
+            pgs_file=downloaded_pgs_score_file,
             hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
             max_pgs_alleles=max_pgs_alleles
         )
-
-        metadata_json, _ = read_or_download_pgs_scoring_file(pgs_id)
-
-        result_df = pd.DataFrame(
-            [
-                [
-                    pgs_id,
-                    metadata_json["trait_reported"],
-                    pgs,
-                    PGS_METHOD_MAPPING_TO_METHOD_CATEGORIES.get(metadata_json["method_name"]),
-                    metadata_json["method_name"],
-                ]
-            ],
-            columns=["pgs_id", "trait", "score", "method_categorized", "method"])
-        result_df.to_csv(cache_file, sep="\t", index=False)
-        return result_df, None
+        df_to_store["score"] = pgs
+        df_to_store.to_csv(cache_file, sep="\t", index=False)
+        return df_to_store, None
     except Exception as e:
-        return None, (pgs_id, [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))])
+        # In case of exceptions store exceptions in the cache
+        errors = [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))]
+        df_to_store["error"] = str(errors)
+        df_to_store.to_csv(cache_file, sep="\t", index=False)
+        return None, (pgs_id, errors)
+
+
+def _do_calc_polygenic_score_single_input_arg(
+        input_args: Tuple[str, str, str, int]
+) -> Tuple[Optional[pd.DataFrame], Optional[Tuple[str, List[str]]]]:
+    return _do_calc_polygenic_score(*input_args)
+
+
+def get_pgs_metadata(pgs_id: str) -> pd.Series:
+    downloaded_pgs_score_file, metadata_json = read_or_download_pgs_scoring_file(pgs_id)
+    return pd.Series(
+        [
+            pgs_id,
+            metadata_json["trait_reported"],
+            PGS_METHOD_MAPPING_TO_METHOD_CATEGORIES.get(metadata_json["method_name"]),
+            metadata_json["method_name"],
+        ],
+        index=["pgs_id", "trait", "method_categorized", "method"]
+    )
