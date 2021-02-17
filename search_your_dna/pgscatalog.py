@@ -317,7 +317,7 @@ def _do_calc_polygenic_score(
         [
             pgs_id,
             np.nan,
-            ""
+            np.nan
         ],
         index=["pgs_id", "score", "error"]
     )
