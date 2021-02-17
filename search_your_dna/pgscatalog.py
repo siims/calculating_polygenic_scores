@@ -275,23 +275,20 @@ def calc_all_polygenic_scores(
 
 
 def calc_all_polygenic_scores_parallel(
-        files: List[str],
+        pgs_ids: List[str],
         my_vcf_file: str,
         hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz",
         max_pgs_alleles: int = 20_000,
         num_parallel_processes: int = 6
 ):
     with Pool(num_parallel_processes) as p:
-        res = p.map(_do_calc_polygenic_score_single_input_arg,
-                    [(get_pgs_id_from_filename(file), my_vcf_file, hg19_rsid_chrom_pos_mapping_file, max_pgs_alleles)
-                     for file in files])
-        pgs_dfs = [v[0] for v in res if v[0] is not None]
-        if len(pgs_dfs) == 0:
-            pgs_df = pd.DataFrame()
+        pgs_series_list = p.map(_do_calc_polygenic_score_single_input_arg,
+                    [(pgs_id, my_vcf_file, hg19_rsid_chrom_pos_mapping_file, max_pgs_alleles)
+                     for pgs_id in pgs_ids])
+        if len(pgs_series_list) == 0:
+            return pd.DataFrame()
         else:
-            pgs_df = pd.concat(pgs_dfs, ignore_index=True)
-        errors = {v[1][0]: v[1][1] for v in res if v[1] is not None}
-        return pgs_df, errors
+            return pd.concat(pgs_series_list, axis=1).T
 
 
 def get_pgs_id_from_filename(filename: str) -> str:
@@ -307,27 +304,22 @@ def _do_calc_polygenic_score(
         my_vcf_file: str,
         hg19_rsid_chrom_pos_mapping_file: str,
         max_pgs_alleles: int
-) -> Tuple[Optional[pd.DataFrame], Optional[Tuple[str, List[str]]]]:
+) -> pd.Series:
     cache_dir = Path("data/pgs_results")
     cache_dir.mkdir(exist_ok=True, parents=True)
     cache_file = cache_dir / f"{pgs_id}.tsv"
     if Path(cache_file).exists():
-        print(f"Using cache for {pgs_id}")
-        results = pd.read_csv(cache_file, sep="\t")
-        if results["error"][0] is not "":
-            return None, (pgs_id, results["error"][0])
-        return results, None
+        results = pd.read_csv(cache_file, sep="\t", squeeze=True, header=None, index_col=0, dtype={"error": str})
+        return results
 
     downloaded_pgs_score_file, _ = read_or_download_pgs_scoring_file(pgs_id)
-    df_to_store = pd.DataFrame(
+    result_df = pd.Series(
         [
-            [
-                pgs_id,
-                np.nan,
-                ""
-            ]
+            pgs_id,
+            np.nan,
+            ""
         ],
-        columns=["pgs_id", "score", "error"]
+        index=["pgs_id", "score", "error"]
     )
     try:
         pgs, _ = calc_polygenic_score(
@@ -336,20 +328,20 @@ def _do_calc_polygenic_score(
             hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
             max_pgs_alleles=max_pgs_alleles
         )
-        df_to_store["score"] = pgs
-        df_to_store.to_csv(cache_file, sep="\t", index=False)
-        return df_to_store, None
+        result_df["score"] = pgs
+        result_df.to_csv(cache_file, sep="\t", header=False)
+        return result_df
     except Exception as e:
-        # In case of exceptions store exceptions in the cache
+        # store exceptions in the cache as well
         errors = [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))]
-        df_to_store["error"] = str(errors)
-        df_to_store.to_csv(cache_file, sep="\t", index=False)
-        return None, (pgs_id, errors)
+        result_df["error"] = str(errors)
+        result_df.to_csv(cache_file, sep="\t", header=False)
+        return result_df
 
 
 def _do_calc_polygenic_score_single_input_arg(
         input_args: Tuple[str, str, str, int]
-) -> Tuple[Optional[pd.DataFrame], Optional[Tuple[str, List[str]]]]:
+) -> pd.Series:
     return _do_calc_polygenic_score(*input_args)
 
 
@@ -361,6 +353,7 @@ def get_pgs_metadata(pgs_id: str) -> pd.Series:
             metadata_json["trait_reported"],
             PGS_METHOD_MAPPING_TO_METHOD_CATEGORIES.get(metadata_json["method_name"]),
             metadata_json["method_name"],
+            [v["ancestry_broad"] for v in metadata_json["samples_variants"]]
         ],
-        index=["pgs_id", "trait", "method_categorized", "method"]
+        index=["pgs_id", "trait", "method_categorized", "method", "ancestry"]
     )
