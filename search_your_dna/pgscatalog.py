@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import shutil
 from pathlib import Path
-from typing import Tuple, Dict, Optional, List
+from typing import Tuple, Dict, List, Union
 
 import pysam
 import requests
@@ -88,7 +88,9 @@ PGS_METHOD_MAPPING_TO_METHOD_CATEGORIES = {
 
 
 def get_all_pgs_api_data(api_endpoint: str, cache_dir: str):
-    cache_file = f"{cache_dir}/api_results_{api_endpoint.replace('/', '-')}.json"
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(exist_ok=True, parents=True)
+    cache_file = cache_dir / f"api_results_{api_endpoint.replace('/', '-')}.json"
     if Path(cache_file).exists():
         print(f"Found cache file {cache_file}. Loading data from cache.")
         with open(cache_file, "r") as f:
@@ -116,8 +118,10 @@ def download_file(url: str, local_filename: str) -> None:
             shutil.copyfileobj(r.raw, f)
 
 
-def read_or_download_pgs_scoring_file(pgs_id: str, cache_dir: str) -> Tuple[str, Dict]:
-    cache_file_score_file = get_pgs_score_file_from_id(pgs_id, cache_dir)
+def read_or_download_pgs_scoring_file(pgs_id: str, cache_dir: Union[str, Path]) -> Tuple[str, Dict]:
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(exist_ok=True, parents=True)
+    cache_score_file = get_pgs_score_file_from_id(pgs_id, cache_dir)
     cache_file_response = Path(cache_dir) / f"{pgs_id}.json"
 
     if Path(cache_file_response).exists():
@@ -132,13 +136,13 @@ def read_or_download_pgs_scoring_file(pgs_id: str, cache_dir: str) -> Tuple[str,
         with open(cache_file_response, "w") as f:
             json.dump(response_data, f)
 
-    if not Path(cache_file_score_file).exists():
+    if not Path(cache_score_file).exists():
         print(
-            f"Downloading pgs {pgs_id} scoring file from {response_data['ftp_scoring_file']}. Cache file {cache_file_score_file} not found."
+            f"Downloading pgs {pgs_id} scoring file from {response_data['ftp_scoring_file']}. Cache file {cache_score_file} not found."
         )
         scoring_file_url = response_data["ftp_scoring_file"]
-        download_file(scoring_file_url, cache_file_score_file)
-    return cache_file_score_file, response_data
+        download_file(scoring_file_url, cache_score_file)
+    return cache_score_file, response_data
 
 
 def to_gene_dosage_df(variance_str_list: List[str]) -> pd.DataFrame:
@@ -280,7 +284,7 @@ def get_pgs_id_from_filename(filename: str) -> str:
     return Path(filename).stem[:-4]
 
 
-def get_pgs_score_file_from_id(pgs_id: str, path_to_pgs_files: str) -> str:
+def get_pgs_score_file_from_id(pgs_id: str, path_to_pgs_files: Union[str, Path]) -> str:
     return Path(path_to_pgs_files) / f"{pgs_id}.txt.gz"
 
 

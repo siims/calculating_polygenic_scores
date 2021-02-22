@@ -7,7 +7,7 @@ TODO:
 * [X] how to run sequence alignment
 * [ ] how to run variant calling
 * [ ] how to annotate variants
-* [ ] how to calculate your polygenic risk scores quickly
+* [X] how to calculate your polygenic risk scores quickly
 * [ ] how to search your dna for specific variance
 
 ### Installation
