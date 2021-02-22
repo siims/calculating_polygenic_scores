@@ -87,27 +87,27 @@ PGS_METHOD_MAPPING_TO_METHOD_CATEGORIES = {
 }
 
 
-def get_all_pgs_api_data(api_endpoint: str):
-    cache_file = f"data/pgs/pgs_catalog_{api_endpoint.replace('/', '-')}.json"
+def get_all_pgs_api_data(api_endpoint: str, cache_dir: str):
+    cache_file = f"{cache_dir}/api_results_{api_endpoint.replace('/', '-')}.json"
     if Path(cache_file).exists():
         print(f"Found cache file {cache_file}. Loading data from cache.")
         with open(cache_file, "r") as f:
             return json.load(f)
     limit = 50
     offset = 0
-    traits = []
+    results = []
     while True:
         url = f"https://www.pgscatalog.org/rest/{api_endpoint}?limit={limit}&offset={offset}"
         print(f"Requesting pgs data from {url}")
         traits_response = requests.get(url=url)
         data = traits_response.json()
-        traits.extend(data["results"])
+        results.extend(data["results"])
         if data["next"] == None:
             break
         offset += limit
     with open(cache_file, "w") as f:
-        json.dump(traits, f)
-    return traits
+        json.dump(results, f)
+    return results
 
 
 def download_file(url: str, local_filename: str) -> None:
@@ -116,9 +116,9 @@ def download_file(url: str, local_filename: str) -> None:
             shutil.copyfileobj(r.raw, f)
 
 
-def read_or_download_pgs_scoring_file(pgs_id: str) -> Tuple[str, Dict]:
-    cache_file_score_file = get_pgs_filename_from_id(pgs_id)
-    cache_file_response = f"data/pgs/{pgs_id}.json"
+def read_or_download_pgs_scoring_file(pgs_id: str, cache_dir: str) -> Tuple[str, Dict]:
+    cache_file_score_file = get_pgs_score_file_from_id(pgs_id, cache_dir)
+    cache_file_response = Path(cache_dir) / f"{pgs_id}.json"
 
     if Path(cache_file_response).exists():
         with open(cache_file_response) as f:
@@ -126,7 +126,7 @@ def read_or_download_pgs_scoring_file(pgs_id: str) -> Tuple[str, Dict]:
     else:
         url = f"https://www.pgscatalog.org/rest/score/{pgs_id}"
         print(f"Requesting pgs {pgs_id} data from {url}. Cache file {cache_file_response} not found.")
-        time.sleep(0.5)  # Not to overload api with requests
+        time.sleep(0.5)  # Not to overload api with requests - there is a 100 requests/minute limit
         data = requests.get(url)
         response_data = data.json()
         with open(cache_file_response, "w") as f:
@@ -217,7 +217,7 @@ def read_polygenic_score_file(pgs_file):
         raise Exception(f"ERROR: read_polygenic_score_file failed. Exceptions: {second_error + first_error}")
 
 
-def calc_polygenic_score(my_vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_mapping_file: str, max_pgs_alleles=200):
+def _calc_polygenic_score(vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_mapping_file: str, max_pgs_alleles=200):
     pgs_df = read_polygenic_score_file(pgs_file)
     assert pgs_df.shape[0] < max_pgs_alleles, f"Too many snps for {pgs_file}. Total {pgs_df.shape[0]}"
 
@@ -226,7 +226,7 @@ def calc_polygenic_score(my_vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_ma
         print(f"calc pgs based on rsid for {get_pgs_id_from_filename(pgs_file)}")
         pgs_locations = pd.DataFrame(pgs_df["rsid"], columns=["rsid"])
         pgs_rsids = clean_rsids(pgs_locations["rsid"], Path(pgs_file).stem)
-        my_variance = search_for_rsids(pgs_rsids, my_vcf_file=my_vcf_file)
+        my_variance = search_for_rsids(pgs_rsids, my_vcf_file=vcf_file)
     else:
         print(f"calc pgs based on chr-pos {get_pgs_id_from_filename(pgs_file)}")
         assert pgs_df.attrs["metadata"]["hg_build"] == "hg19", (
@@ -234,7 +234,7 @@ def calc_polygenic_score(my_vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_ma
         )
 
         pgs_locations, _ = fetch_hg19_rsids_based_on_chrom_pos(pgs_df, hg19_rsid_chrom_pos_mapping_file)
-        my_variance = search_for_rsids(pgs_locations["rsid"], my_vcf_file=my_vcf_file)
+        my_variance = search_for_rsids(pgs_locations["rsid"], my_vcf_file=vcf_file)
 
     gene_dosage_df = to_gene_dosage_df(my_variance)
 
@@ -252,39 +252,24 @@ def calc_polygenic_score(my_vcf_file: str, pgs_file: str, hg19_rsid_chrom_pos_ma
     return pgs_score, merged_df
 
 
-def calc_all_polygenic_scores(
-        files: List[str],
-        my_vcf_file: str,
-        hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz",
-        max_pgs_alleles: int = 20_000
-) -> Tuple[pd.DataFrame, Dict]:
-    errors = {}
-    all_pgs_scores = pd.DataFrame(columns=["pgs_id", "trait", "score", "method_categorized", "method", "file"])
-    for pgs_file in tqdm(sorted(files)):
-        single_pgs_score_df, error = _do_calc_polygenic_score(
-            pgs_id=get_pgs_id_from_filename(pgs_file),
-            my_vcf_file=my_vcf_file,
-            hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
-            max_pgs_alleles=max_pgs_alleles
-        )
-        if single_pgs_score_df is not None:
-            all_pgs_scores = all_pgs_scores.append(single_pgs_score_df, ignore_index=True)
-        else:
-            errors[pgs_file] = error
-    return all_pgs_scores, errors
-
-
 def calc_all_polygenic_scores_parallel(
         pgs_ids: List[str],
-        my_vcf_file: str,
-        hg19_rsid_chrom_pos_mapping_file: str = "data/humandb/hg19_avsnp150.txt.gz",
+        vcf_file: str,
+        hg19_rsid_chrom_pos_mapping_file: str,
         max_pgs_alleles: int = 20_000,
-        num_parallel_processes: int = 6
+        num_parallel_processes: int = 6,
+        pgs_catalog_input_cache_dir: str = "data/pgs",
+        pgs_result_cache_dir: str = "data/pgs_results",
 ):
     with Pool(num_parallel_processes) as p:
-        pgs_series_list = p.map(_do_calc_polygenic_score_single_input_arg,
-                    [(pgs_id, my_vcf_file, hg19_rsid_chrom_pos_mapping_file, max_pgs_alleles)
-                     for pgs_id in pgs_ids])
+        pgs_series_list = p.map(do_calc_polygenic_score_single_input_arg,
+                                [(pgs_id,
+                                  vcf_file,
+                                  hg19_rsid_chrom_pos_mapping_file,
+                                  max_pgs_alleles,
+                                  pgs_catalog_input_cache_dir,
+                                  pgs_result_cache_dir)
+                                 for pgs_id in pgs_ids])
         if len(pgs_series_list) == 0:
             return pd.DataFrame()
         else:
@@ -295,24 +280,27 @@ def get_pgs_id_from_filename(filename: str) -> str:
     return Path(filename).stem[:-4]
 
 
-def get_pgs_filename_from_id(pgs_id: str) -> str:
-    return f"data/pgs/{pgs_id}.txt.gz"
+def get_pgs_score_file_from_id(pgs_id: str, path_to_pgs_files: str) -> str:
+    return Path(path_to_pgs_files) / f"{pgs_id}.txt.gz"
 
 
-def _do_calc_polygenic_score(
+def do_calc_polygenic_score(
         pgs_id: str,
-        my_vcf_file: str,
+        vcf_file: str,
         hg19_rsid_chrom_pos_mapping_file: str,
-        max_pgs_alleles: int
+        max_pgs_alleles: int,
+        pgs_catalog_input_cache_dir: str,
+        pgs_result_cache_dir: str,
 ) -> pd.Series:
-    cache_dir = Path("data/pgs_results")
+    cache_dir = Path(pgs_result_cache_dir)
     cache_dir.mkdir(exist_ok=True, parents=True)
-    cache_file = cache_dir / f"{pgs_id}.tsv"
-    if Path(cache_file).exists():
-        results = pd.read_csv(cache_file, sep="\t", squeeze=True, header=None, index_col=0, dtype={"error": str})
+    pgs_result_cache_file = cache_dir / f"{pgs_id}.tsv"
+    if Path(pgs_result_cache_file).exists():
+        results = pd.read_csv(pgs_result_cache_file, sep="\t", squeeze=True, header=None, index_col=0,
+                              dtype={"error": str})
         return results
 
-    downloaded_pgs_score_file, _ = read_or_download_pgs_scoring_file(pgs_id)
+    downloaded_pgs_score_file, _ = read_or_download_pgs_scoring_file(pgs_id, pgs_catalog_input_cache_dir)
     result_df = pd.Series(
         [
             pgs_id,
@@ -322,31 +310,31 @@ def _do_calc_polygenic_score(
         index=["pgs_id", "score", "error"]
     )
     try:
-        pgs, _ = calc_polygenic_score(
-            my_vcf_file=my_vcf_file,
+        pgs, _ = _calc_polygenic_score(
+            vcf_file=vcf_file,
             pgs_file=downloaded_pgs_score_file,
             hg19_rsid_chrom_pos_mapping_file=hg19_rsid_chrom_pos_mapping_file,
             max_pgs_alleles=max_pgs_alleles
         )
         result_df["score"] = pgs
-        result_df.to_csv(cache_file, sep="\t", header=False)
+        result_df.to_csv(pgs_result_cache_file, sep="\t", header=False)
         return result_df
     except Exception as e:
         # store exceptions in the cache as well
         errors = [str(e), ''.join(traceback.format_exception(None, e, e.__traceback__))]
         result_df["error"] = str(errors)
-        result_df.to_csv(cache_file, sep="\t", header=False)
+        result_df.to_csv(pgs_result_cache_file, sep="\t", header=False)
         return result_df
 
 
-def _do_calc_polygenic_score_single_input_arg(
-        input_args: Tuple[str, str, str, int]
+def do_calc_polygenic_score_single_input_arg(
+        input_args: Tuple[str, str, str, int, str, str]
 ) -> pd.Series:
-    return _do_calc_polygenic_score(*input_args)
+    return do_calc_polygenic_score(*input_args)
 
 
-def get_pgs_metadata(pgs_id: str) -> pd.Series:
-    downloaded_pgs_score_file, metadata_json = read_or_download_pgs_scoring_file(pgs_id)
+def get_pgs_metadata(pgs_id: str, pgs_catalog_input_cache_dir: str) -> pd.Series:
+    downloaded_pgs_score_file, metadata_json = read_or_download_pgs_scoring_file(pgs_id, pgs_catalog_input_cache_dir)
     return pd.Series(
         [
             pgs_id,
