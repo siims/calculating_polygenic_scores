@@ -5,8 +5,9 @@ Set of notebook and utility functions for calculating polygenic scores for a gen
 TODO:
 
 * [X] how to run sequence alignment
-* [ ] how to run variant calling
-* [ ] how to annotate variants
+* [X] how to run variant calling
+* [X] how to pick alternate contigs
+* [X] how to annotate variants
 * [X] how to calculate your polygenic risk scores quickly
 * [ ] how to search your dna for specific variance
 

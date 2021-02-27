@@ -418,3 +418,25 @@ def search_for_rsids(
     file_my_vcf_rsidx_indexed = my_vcf_file + ".rsidx"
     with sqlite3.connect(file_my_vcf_rsidx_indexed) as db:
         return list(rsidx.search.search(rsids, db, file_my_vcf_tabix_indexed))
+
+
+def calc_alt_contigs_to_use(
+        region_contig_read_counts: Dict[str, Dict[str, int]],
+        assembly_metadata_df: pd.DataFrame
+) -> pd.DataFrame:
+
+    alt_contigs_to_use = pd.DataFrame(columns=["chrom", "start", "stop", "contig", "region"])
+
+    for region, contig_read_count in region_contig_read_counts.items():
+        region_metadata_df = assembly_metadata_df[assembly_metadata_df["region_name"] == region]
+        chrom = region_metadata_df["chromosome"].iloc[0]
+        chrom_start = region_metadata_df["chromosome_start"].iloc[0]
+        chrom_stop = region_metadata_df["chromosome_stop"].iloc[0]
+
+        regions_contig_with_highest_coverage = sorted(contig_read_count.items(), key=lambda item: item[1])[-1]
+        current_contig = regions_contig_with_highest_coverage[0]
+        if current_contig != "main":
+            alt_contigs_to_use = alt_contigs_to_use.append(
+                {"chrom": chrom, "start": chrom_start, "stop": chrom_stop, "contig": current_contig, "region": region},
+                ignore_index=True)
+    return alt_contigs_to_use
