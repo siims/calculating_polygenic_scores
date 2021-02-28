@@ -12,7 +12,6 @@ from typing import Tuple, Dict, List, Union
 
 import pysam
 import requests
-from tqdm import tqdm
 
 from search_your_dna.util import read_raw_zipped_polygenic_score_file, search_for_rsids, \
     read_raw_zipped_polygenic_score_file_with_chrom_pos
@@ -124,8 +123,8 @@ def read_or_download_pgs_scoring_file(pgs_id: str, cache_dir: Union[str, Path]) 
     cache_score_file = get_pgs_score_file_from_id(pgs_id, cache_dir)
     cache_file_response = Path(cache_dir) / f"{pgs_id}.json"
 
-    if Path(cache_file_response).exists():
-        with open(cache_file_response) as f:
+    if cache_file_response.exists():
+        with open(cache_file_response, "r") as f:
             response_data = json.load(f)
     else:
         url = f"https://www.pgscatalog.org/rest/score/{pgs_id}"

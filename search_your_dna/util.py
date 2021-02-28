@@ -9,34 +9,6 @@ import numpy as np
 import pandas as pd
 import rsidx
 
-CHROM_LIST = [
-    '1',
-    '2',
-    '3',
-    '4',
-    '5',
-    '6',
-    '7',
-    '8',
-    '9',
-    '10',
-    '11',
-    '12',
-    '13',
-    '14',
-    '15',
-    '16',
-    '17',
-    '18',
-    '19',
-    '20',
-    '21',
-    '22',
-    'MT',
-    'X',
-    'Y'
-]
-
 KNOWN_CONTIG_CHROM_MAP = {
     "CM000663.2": "1",
     "CM000664.2": "2",
@@ -135,7 +107,7 @@ def get_file_header_line_number(file_name: Union[str, Path], header_pattern: str
         csv_open = open
         line_parser = lambda text: text
 
-    with csv_open(str(file_name), "r") as f:
+    with csv_open(file_name, "r") as f:
         line_number = 0
         for line in f:
             if re.search(header_pattern, line_parser(line)):
@@ -198,7 +170,7 @@ def _get_pgs_file_human_genome_build(file_name):
         csv_open = open
         line_parser = lambda text: text
     is_hg19, is_hg38 = False, False
-    with csv_open(file_name) as pgs_file:
+    with csv_open(file_name, "r") as pgs_file:
         for line in pgs_file:
             line = line_parser(line)
             if "grch37" in line.lower():

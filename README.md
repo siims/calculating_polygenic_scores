@@ -9,7 +9,7 @@ TODO:
 * [X] how to pick alternate contigs
 * [X] how to annotate variants
 * [X] how to calculate your polygenic risk scores quickly
-* [ ] how to search your dna for specific variance
+* [ ] how to search your dna for a specific variance
 
 ### Installation
 
