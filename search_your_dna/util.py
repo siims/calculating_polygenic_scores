@@ -84,14 +84,12 @@ KNOWN_CONTIG_CHROM_MAP = {
     "22": "22",
     "X": "X",
     "Y": "Y",
-    "MT": "MT"
+    "MT": "MT",
 }
 
 
 def is_alignment_supported(alignment_data):
-    supported_reference_genomes = [
-        "grch38.p7"
-    ]
+    supported_reference_genomes = ["grch38.p7"]
     for supported_reference_genome in supported_reference_genomes:
         if supported_reference_genome in str(alignment_data.header.to_dict()).lower():
             return True
@@ -118,8 +116,7 @@ def get_file_header_line_number(file_name: Union[str, Path], header_pattern: str
 
 def get_vcf_file_header_line_number(file_name: Union[str, Path]) -> int:
     return get_file_header_line_number(
-        file_name=file_name,
-        header_pattern="#CHROM\s+POS\s+ID\s+REF\s+ALT\s+QUAL\s+FILTER\s+INFO"
+        file_name=file_name, header_pattern="#CHROM\s+POS\s+ID\s+REF\s+ALT\s+QUAL\s+FILTER\s+INFO"
     )
 
 
@@ -131,10 +128,7 @@ def read_raw_zipped_vcf_file(file_name: Union[str, Path]) -> pd.DataFrame:
 
 
 def read_raw_zipped_polygenic_score_file(file_name: Union[str, Path]) -> pd.DataFrame:
-    header_row_number = get_file_header_line_number(
-        file_name=file_name,
-        header_pattern="rsID\t"
-    )
+    header_row_number = get_file_header_line_number(file_name=file_name, header_pattern="rsID\t")
     result = pd.read_csv(file_name, sep="\t", skiprows=header_row_number, dtype=str)
     result["effect_weight"] = result["effect_weight"].astype(np.float)
     result.rename(columns={"rsID": "rsid"}, inplace=True)
@@ -142,22 +136,17 @@ def read_raw_zipped_polygenic_score_file(file_name: Union[str, Path]) -> pd.Data
 
 
 def read_raw_zipped_polygenic_score_file_with_chrom_pos(file_name: Union[str, Path]) -> pd.DataFrame:
-    header_row_number = get_file_header_line_number(
-        file_name=file_name,
-        header_pattern="chr_name\t"
-    )
+    header_row_number = get_file_header_line_number(file_name=file_name, header_pattern="chr_name\t")
     result = pd.read_csv(file_name, sep="\t", skiprows=header_row_number, dtype=str)
     result["effect_weight"] = result["effect_weight"].astype(np.float)
     # cast to float before because of known bug https://github.com/pandas-dev/pandas/issues/25472
-    result["chr_position"] = result["chr_position"].astype('float').astype("Int64")
+    result["chr_position"] = result["chr_position"].astype("float").astype("Int64")
     result.rename(columns={"chr_name": "chrom", "chr_position": "pos"}, inplace=True)
 
     hg_build = _get_pgs_file_human_genome_build(file_name)
 
     result = result[["chrom", "pos", "effect_weight", "reference_allele", "effect_allele"]]
-    result.attrs["metadata"] = {
-        "hg_build": hg_build
-    }
+    result.attrs["metadata"] = {"hg_build": hg_build}
     return result
 
 
@@ -177,11 +166,13 @@ def _get_pgs_file_human_genome_build(file_name):
                 is_hg19 = True
             if "grch38" in line.lower():
                 is_hg38 = True
-    assert not is_hg19 or not is_hg38, f"need to know what human genome build is used, but not known for pgs {file_name}"
+    assert (
+        not is_hg19 or not is_hg38
+    ), f"need to know what human genome build is used, but not known for pgs {file_name}"
     return "hg19" if is_hg19 else "hg38"
 
 
-def load_vcf_to_df(vcf_files: List[Union[str, Path]], cache_file_name: str = "data/vcf_records.parquet.gz"):
+def load_vcf_to_df(vcf_files: List[Union[str, Path]], cache_file_name: str = "data/vcf_records.parquet"):
     if Path(cache_file_name).exists():
         return pd.read_parquet(cache_file_name)
 
@@ -216,15 +207,14 @@ def _get_contig(alignment_data, chrom):
     for contig in alignment_data.header.references:
         if KNOWN_CONTIG_CHROM_MAP.get(contig) == chrom:
             return contig
-    raise AssertionError(f"Chomosome {chrom} not found for known contigs {KNOWN_CONTIG_CHROM_MAP.keys()} "
-                         f"from all alignment data contigs {alignment_data.header.references}")
+    raise AssertionError(
+        f"Chomosome {chrom} not found for known contigs {KNOWN_CONTIG_CHROM_MAP.keys()} "
+        f"from all alignment data contigs {alignment_data.header.references}"
+    )
 
 
 def get_chrom_reads_in_pos(
-        alignment_data,
-        positions: Set[int],
-        contig: Optional[str] = None,
-        chrom: Optional[Union[int, str]] = None
+    alignment_data, positions: Set[int], contig: Optional[str] = None, chrom: Optional[Union[int, str]] = None
 ) -> Dict[int, List[str]]:
     if contig is None:
         contig = _get_contig(alignment_data=alignment_data, chrom=str(chrom))
@@ -242,11 +232,7 @@ def get_chrom_reads_in_pos(
 
 
 def get_chrom_reads_in_range(
-        alignment_data,
-        start: int,
-        stop: int,
-        contig: Optional[str] = None,
-        chrom: Optional[Union[int, str]] = None
+    alignment_data, start: int, stop: int, contig: Optional[str] = None, chrom: Optional[Union[int, str]] = None
 ) -> Dict[int, List[str]]:
     if contig is None:
         contig = _get_contig(alignment_data=alignment_data, chrom=str(chrom))
@@ -262,9 +248,9 @@ def get_chrom_reads_in_range(
     return sequence
 
 
-def get_read_values_for_allele(alignment_data, pos: int, chrom: Optional[Union[int, str]] = None,
-                               contig: Optional[str] = None) -> Dict[
-    int, List[str]]:
+def get_read_values_for_allele(
+    alignment_data, pos: int, chrom: Optional[Union[int, str]] = None, contig: Optional[str] = None
+) -> Dict[int, List[str]]:
     """
     Need either chrom or contig. If both provided uses contig by default.
     :return: dictionary with pos as keys and list of nucleotide values as values
@@ -285,8 +271,9 @@ def get_read_values_for_allele(alignment_data, pos: int, chrom: Optional[Union[i
     return sequence
 
 
-def calc_genotype_for_chrom_snp_reads(chrom_snp_reads: Dict[int, List[str]], chrom: str,
-                                      sex: str = "male") -> pd.DataFrame:
+def calc_genotype_for_chrom_snp_reads(
+    chrom_snp_reads: Dict[int, List[str]], chrom: str, sex: str = "male"
+) -> pd.DataFrame:
     chrom_snp_genotypes = defaultdict()
     for pos, reads in chrom_snp_reads.items():
         chrom_snp_genotypes[pos] = genotype_from_reads(reads, chrom=chrom, sex=sex)
@@ -337,11 +324,7 @@ def calc_genotypes(alignment_data, loci_df: pd.DataFrame) -> pd.DataFrame:
     return seq
 
 
-def get_my_genotypes_for_pgs(
-        alignment_data,
-        pgs_df: pd.DataFrame,
-        cache_file_name: str
-) -> pd.DataFrame:
+def get_my_genotypes_for_pgs(alignment_data, pgs_df: pd.DataFrame, cache_file_name: str) -> pd.DataFrame:
     assert is_alignment_supported(alignment_data)
     cache_file = f"data/my_genotype_in_pos_hg38/{cache_file_name}"
     if not Path(cache_file).exists():
@@ -361,14 +344,14 @@ def filter_out_none_effect_alleles(merged_pgs_with_my_genotype):
     return merged_pgs_with_my_genotype[
         (merged_pgs_with_my_genotype["genotype"].map(lambda x: x[0]) == merged_pgs_with_my_genotype["effect_allele"])
         | (merged_pgs_with_my_genotype["genotype"].map(lambda x: x[1]) == merged_pgs_with_my_genotype["effect_allele"])
-        ]
+    ]
 
 
 def filter_out_effect_alleles(merged_pgs_with_my_genotype):
     return merged_pgs_with_my_genotype[
         (merged_pgs_with_my_genotype["genotype"].map(lambda x: x[0]) != merged_pgs_with_my_genotype["effect_allele"])
         & (merged_pgs_with_my_genotype["genotype"].map(lambda x: x[1]) != merged_pgs_with_my_genotype["effect_allele"])
-        ]
+    ]
 
 
 def get_genotype_for_chrom_pos(alignment_data, chrom: str, pos: int) -> str:
@@ -379,10 +362,7 @@ def get_genotype_for_chrom_pos(alignment_data, chrom: str, pos: int) -> str:
         raise Exception(f"no reads found for chr{chrom}:{pos}")
 
 
-def search_for_rsids(
-        rsids: List[str],
-        my_vcf_file: str
-) -> List[str]:
+def search_for_rsids(rsids: List[str], my_vcf_file: str) -> List[str]:
     if Path(my_vcf_file).suffix == ".gz":
         my_vcf_file = my_vcf_file[:-3]
 
@@ -393,8 +373,7 @@ def search_for_rsids(
 
 
 def calc_alt_contigs_to_use(
-        region_contig_read_counts: Dict[str, Dict[str, int]],
-        assembly_metadata_df: pd.DataFrame
+    region_contig_read_counts: Dict[str, Dict[str, int]], assembly_metadata_df: pd.DataFrame
 ) -> pd.DataFrame:
 
     alt_contigs_to_use = pd.DataFrame(columns=["chrom", "start", "stop", "contig", "region"])
@@ -410,5 +389,6 @@ def calc_alt_contigs_to_use(
         if current_contig != "main":
             alt_contigs_to_use = alt_contigs_to_use.append(
                 {"chrom": chrom, "start": chrom_start, "stop": chrom_stop, "contig": current_contig, "region": region},
-                ignore_index=True)
+                ignore_index=True,
+            )
     return alt_contigs_to_use

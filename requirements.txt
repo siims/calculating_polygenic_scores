@@ -1,6 +1,5 @@
 fastparquet==0.4.1 # for pandas to_parquet
 jupyter==1.0.0
-nbstripout==0.3.9
 numpy==1.19.4
 pandas==1.1.4
 pre-commit==2.9.2
