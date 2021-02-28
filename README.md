@@ -11,7 +11,11 @@ It includes notebooks on:
 2) how to run variant calling
 3) how to pick alternate contigs
 4) how to annotate variants
-5) how to calculate your polygenic risk scores quickly
+5) how to calculate individual's polygenic scores quickly
+
+PGS Catalog doesn't have any special API keys, anyone can query it. So there isn't really anything except a raw human genome file (fastq) you need before starting (vcf file would allow to skip first 2-4 notebooks).
+
+*Disclaimer: Genome analysis is computation heavy, some steps here might take a whole day to run depending on the hardware (ex: sequence alignment is especially heavy).*  
 
 *TODO:*
 * [ ] how to search your dna for a specific variance
@@ -25,4 +29,3 @@ sudo apt-get install libsnappy-dev # for pandas to_parquet and read_parquet
 pip install -r requirements.txt
 pre-commit install
 ```
-
