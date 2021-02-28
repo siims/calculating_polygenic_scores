@@ -1,5 +1,5 @@
 import pandas as pd
-from search_your_dna.util import get_file_header_line_number
+from utils.bam_vcf_utils import get_file_header_line_number
 
 
 def get_assembly_metadata_df(assembly_report_file: str, assembly_regions_file: str) -> pd.DataFrame:

@@ -18,7 +18,7 @@ PGS Catalog doesn't have any special API keys, anyone can query it. So there isn
 *Disclaimer: Genome analysis is computation heavy, some steps here might take a whole day to run depending on the hardware (ex: sequence alignment is especially heavy).*  
 
 *TODO:*
-* [ ] how to search your dna for a specific variance
+* [ ] how to search the dna for a specific variance
 * [ ] polygenic score interpretation. There are many different ways methods how to calculate PGS and score numbers results vary a lot. 
 
 ### Installation

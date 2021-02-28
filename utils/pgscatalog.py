@@ -13,7 +13,7 @@ from typing import Tuple, Dict, List, Union
 import pysam
 import requests
 
-from search_your_dna.util import (
+from utils.bam_vcf_utils import (
     read_raw_zipped_polygenic_score_file,
     search_for_rsids,
     read_raw_zipped_polygenic_score_file_with_chrom_pos,
