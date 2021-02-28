@@ -352,8 +352,8 @@ def get_my_genotypes_for_pgs(
     return my_genotypes
 
 
-def merge_pgs_with_my_genotype(pgs_df: pd.DataFrame, my_genome_df: pd.DataFrame) -> pd.DataFrame:
-    merged_df = my_genome_df.merge(pgs_df, left_on=["chr", "pos"], right_on=["chr_name", "chr_position"])
+def merge_pgs_with_my_genotype(pgs_df: pd.DataFrame, genome_df: pd.DataFrame) -> pd.DataFrame:
+    merged_df = genome_df.merge(pgs_df, left_on=["chr", "pos"], right_on=["chr_name", "chr_position"])
     return merged_df[["chr", "pos", "genotype", "effect_allele", "reference_allele", "effect_weight"]]
 
 

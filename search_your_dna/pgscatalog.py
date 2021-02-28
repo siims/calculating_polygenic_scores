@@ -259,10 +259,10 @@ def calc_all_polygenic_scores_parallel(
         pgs_ids: List[str],
         vcf_file: str,
         hg19_rsid_chrom_pos_mapping_file: str,
+        pgs_catalog_input_cache_dir: str,
+        pgs_result_cache_dir: str,
         max_pgs_alleles: int = 20_000,
         num_parallel_processes: int = 6,
-        pgs_catalog_input_cache_dir: str = "data/pgs",
-        pgs_result_cache_dir: str = "data/pgs_results",
 ):
     with Pool(num_parallel_processes) as p:
         pgs_series_list = p.map(do_calc_polygenic_score_single_input_arg,
