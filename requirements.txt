@@ -1,5 +1,6 @@
 fastparquet==0.4.1 # for pandas to_parquet
 jupyter==1.0.0
+matplotlib==3.4.3 # for plotting via pandas
 numpy==1.19.4
 pandas==1.1.4
 pre-commit==2.9.2
@@ -7,5 +8,6 @@ pysam==0.16.0.1
 python-snappy==0.5.4 # for pandas to_parquet
 PyVCF==0.6.8
 requests==2.25.0
+scipy==1.7.1 # for plotting via pandas
 tqdm==4.56.1
 git+https://github.com/bioforensics/rsidx@0.2

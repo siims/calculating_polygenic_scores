@@ -11,7 +11,8 @@ It includes notebooks on:
 2) how to run variant calling
 3) how to pick alternate contigs
 4) how to annotate variants
-5) how to calculate individual's polygenic scores quickly
+5) how to filter variants [TODO]
+6) how to calculate individual's polygenic scores quickly
 
 PGS Catalog doesn't have any special API keys, anyone can query it. So there isn't really anything except a raw human genome file (fastq) you need before starting (vcf file would allow to skip first 2-4 notebooks).
 
