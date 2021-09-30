@@ -8,6 +8,7 @@ from typing import Any, List, Union, Dict, Set, Optional
 import numpy as np
 import pandas as pd
 import rsidx
+from pysam.libcalignmentfile import AlignmentFile
 
 KNOWN_CONTIG_CHROM_MAP = {
     "CM000663.2": "1",
@@ -88,7 +89,7 @@ KNOWN_CONTIG_CHROM_MAP = {
 }
 
 
-def is_alignment_supported(alignment_data):
+def is_alignment_supported(alignment_data: AlignmentFile):
     supported_reference_genomes = ["grch38.p7"]
     for supported_reference_genome in supported_reference_genomes:
         if supported_reference_genome in str(alignment_data.header.to_dict()).lower():
@@ -203,7 +204,7 @@ def _get_reads_in_current_position(pileupcolumn):
     return reads_at_current_position
 
 
-def _get_contig(alignment_data, chrom):
+def _get_contig(alignment_data: AlignmentFile, chrom: str):
     for contig in alignment_data.header.references:
         if KNOWN_CONTIG_CHROM_MAP.get(contig) == chrom:
             return contig
@@ -214,7 +215,10 @@ def _get_contig(alignment_data, chrom):
 
 
 def get_chrom_reads_in_pos(
-    alignment_data, positions: Set[int], contig: Optional[str] = None, chrom: Optional[Union[int, str]] = None
+    alignment_data: AlignmentFile,
+    positions: Set[int],
+    contig: Optional[str] = None,
+    chrom: Optional[Union[int, str]] = None,
 ) -> Dict[int, List[str]]:
     if contig is None:
         contig = _get_contig(alignment_data=alignment_data, chrom=str(chrom))
@@ -232,7 +236,11 @@ def get_chrom_reads_in_pos(
 
 
 def get_chrom_reads_in_range(
-    alignment_data, start: int, stop: int, contig: Optional[str] = None, chrom: Optional[Union[int, str]] = None
+    alignment_data: AlignmentFile,
+    start: int,
+    stop: int,
+    contig: Optional[str] = None,
+    chrom: Optional[Union[int, str]] = None,
 ) -> Dict[int, List[str]]:
     if contig is None:
         contig = _get_contig(alignment_data=alignment_data, chrom=str(chrom))
@@ -249,7 +257,7 @@ def get_chrom_reads_in_range(
 
 
 def get_read_values_for_allele(
-    alignment_data, pos: int, chrom: Optional[Union[int, str]] = None, contig: Optional[str] = None
+    alignment_data: AlignmentFile, pos: int, chrom: Optional[Union[int, str]] = None, contig: Optional[str] = None
 ) -> Dict[int, List[str]]:
     """
     Need either chrom or contig. If both provided uses contig by default.
@@ -271,11 +279,9 @@ def get_read_values_for_allele(
     return sequence
 
 
-def calc_genotype_for_chrom_snp_reads(
-    chrom_snp_reads: Dict[int, List[str]], chrom: str, sex: str = "male"
-) -> pd.DataFrame:
+def calc_genotype_for_chrom_reads(chrom_reads: Dict[int, List[str]], chrom: str, sex: str = "male") -> pd.DataFrame:
     chrom_snp_genotypes = defaultdict()
-    for pos, reads in chrom_snp_reads.items():
+    for pos, reads in chrom_reads.items():
         chrom_snp_genotypes[pos] = genotype_from_reads(reads, chrom=chrom, sex=sex)
 
     chrom_snp_genotypes_df = pd.DataFrame.from_dict(chrom_snp_genotypes, orient="index", columns=["genotype"])
@@ -299,7 +305,7 @@ def genotype_from_reads(reads, chrom: str, sex: str = "male"):
             return f"{sorted_count_keys[0]}{sorted_count_keys[1]}"
 
 
-def calculate_chromosome_read_values(alignment_data, loci_df: pd.DataFrame) -> Dict[str, Any]:
+def calculate_chromosome_read_values(alignment_data: AlignmentFile, loci_df: pd.DataFrame) -> Dict[str, Any]:
     chromosome_read_values = defaultdict()
     for entry in loci_df.to_dict(orient="records"):
         chrom = entry["chr_name"]
@@ -312,7 +318,7 @@ def calculate_chromosome_read_values(alignment_data, loci_df: pd.DataFrame) -> D
     return chromosome_read_values
 
 
-def calc_genotypes(alignment_data, loci_df: pd.DataFrame) -> pd.DataFrame:
+def calc_genotypes(alignment_data: AlignmentFile, loci_df: pd.DataFrame) -> pd.DataFrame:
     chromosome_read_values = calculate_chromosome_read_values(alignment_data=alignment_data, loci_df=loci_df)
 
     seq = pd.DataFrame(columns=["chr", "pos", "genotype"])
@@ -324,7 +330,7 @@ def calc_genotypes(alignment_data, loci_df: pd.DataFrame) -> pd.DataFrame:
     return seq
 
 
-def get_my_genotypes_for_pgs(alignment_data, pgs_df: pd.DataFrame, cache_file_name: str) -> pd.DataFrame:
+def get_my_genotypes_for_pgs(alignment_data: AlignmentFile, pgs_df: pd.DataFrame, cache_file_name: str) -> pd.DataFrame:
     assert is_alignment_supported(alignment_data)
     cache_file = f"data/my_genotype_in_pos_hg38/{cache_file_name}"
     if not Path(cache_file).exists():
@@ -354,7 +360,7 @@ def filter_out_effect_alleles(merged_pgs_with_my_genotype):
     ]
 
 
-def get_genotype_for_chrom_pos(alignment_data, chrom: str, pos: int) -> str:
+def get_genotype_for_chrom_pos(alignment_data: AlignmentFile, chrom: str, pos: int) -> str:
     reads = get_read_values_for_allele(alignment_data=alignment_data, chrom=chrom, pos=pos)
     if len(reads) != 0:
         return genotype_from_reads(reads[pos], chrom=chrom)
