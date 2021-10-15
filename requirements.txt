@@ -12,4 +12,4 @@ scipy==1.7.1 # for plotting via pandas
 tqdm==4.56.1
 pytabix
 rsidx
-git+https://github.com/bioforensics/rsidx@0.2
+git+https://github.com/bioforensics/rsidx@0.2#egg=rsidx

@@ -26,7 +26,7 @@ PGS Catalog doesn't have any special API keys, anyone can query it. So there isn
 
 ```
 # create a virtual environment with your favorite venv tool
-sudo apt-get install libsnappy-dev # for pandas to_parquet and read_parquet
+sudo apt-get install build-essential python3-dev libsnappy-dev # for pandas to_parquet and read_parquet
 pip install -r requirements.txt
 pre-commit install
 ```
